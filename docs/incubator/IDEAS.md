@@ -62,3 +62,13 @@ The seed lifecycle ADR inherits this failure-mode checklist. (Review:
 SKILL.md (agentskills.io standard) → GuruSeed/Expertise import flow in the
 Seed Composer; format is ~80% compatible. Design in Phase 2; origin
 `imported`, always through the gate.
+
+## Expertise: Cozinha da Maria Rolanda — incubating (first family expertise)
+
+The Pilot's mother is a genuinely great cook; her decades of kitchen judgment
+should live in the system. First real application of the interview-mode Seed
+Composer (see Senior Knowledge Capture): capture the *judgment* — heuristics,
+timing calls, ingredient triage — knowing the embodied craft stays with her.
+Seeds with provenance `taught by: Maria Rolanda`. Candidate for the first
+taught-Expertise once the App's daily loop exists; family heritage
+preservation as the most honest test of the founding thesis.
