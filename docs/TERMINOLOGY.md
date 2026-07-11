@@ -41,8 +41,9 @@ New concepts enter here first.
   repeatedly), distills it into a candidate seed and presents it to the Pilot
   with evidence. Incorporation happens only upon the Pilot's validation.
 - **Seed origin** — every GuruSeed records how it entered: `taught` (via
-  Composer, directly from the Pilot) or `learned` (via Harvester, from
-  observed success, validated by the Pilot). Two origins, one gate.
+  Composer, directly from the Pilot), `learned` (via Harvester, from observed
+  success) or `imported` (external expertise, e.g. open-source skills,
+  admitted individually). Three origins, one gate: the Pilot validates all.
 - **Seed Resolver** — the mechanism that, for a given task, resolves which
   GuruSeeds belong in a Mentor's context. Resolution is deterministic and logged:
   for any action, it is always knowable which seeds were active and why.

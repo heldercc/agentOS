@@ -48,3 +48,17 @@ as interview tool, their heuristics captured as validated seeds before they
 walk out the door. Real market, hard extraction problem. Parked by explicit
 Pilot decision (Session 004) — focus stays on the agnostic engine; candidate
 for the Phase 5 vertical alongside the fiscal niches.
+
+
+## Seed Hygiene Checklist — incubating (harvested insight)
+
+From the rejected knowledge-ops skill: seed stores rot like SOP wikis — no
+owner, no last-reviewed date, vague success signals, orphans, glossary drift.
+The seed lifecycle ADR inherits this failure-mode checklist. (Review:
+2026-07-REVIEW-SKILL-IMPORT.)
+
+## Skill Import via Composer — incubating
+
+SKILL.md (agentskills.io standard) → GuruSeed/Expertise import flow in the
+Seed Composer; format is ~80% compatible. Design in Phase 2; origin
+`imported`, always through the gate.
