@@ -1,48 +1,67 @@
-# Vision
+# Chapter I — Vision
 
-## Why
+## Two Observations
 
-Current AI systems accumulate **information**. Conversations end, context evaporates,
-and the same expertise is re-explained to the machine every single day.
+AgentOS begins with two observations about how intelligent systems fail their
+owners today.
 
-AgentOS aims to accumulate **reusable human expertise**: the judgment, heuristics and
-taste of its owner, captured in explicit, versioned, teachable form — so that every
-hour spent teaching the system compounds instead of evaporating.
+### First observation: context is consumed, not scheduled
 
-## Core Thesis
+Every conversation with an AI system begins near zero. The owner re-explains the
+project, the constraints, the taste, the history — and the system consumes that
+context, produces work, and forgets. The next session repeats the ritual. Context
+is treated as fuel: burned once, gone.
 
-- **AI works.** Model capability is no longer the bottleneck; capturing and governing
-  expertise is.
-- **Humans govern.** The system proposes, the Pilot decides. Autonomy is granted
-  explicitly, per scope, and is always revocable.
-- **Expertise compounds.** A heuristic taught once (a GuruSeed) is applied forever,
-  refined over time, and auditable at every step.
-- **Architecture precedes implementation.** The cost of a wrong abstraction grows
-  with every line of code built on top of it.
+An operating system does not treat memory this way. It treats memory as a
+**managed resource**: allocated, scheduled, paged in when relevant, paged out when
+not, never re-created from scratch when it already exists.
+
+AgentOS applies the same discipline to context. **Context is an operating-system
+resource.** The system's job is *context scheduling* — deciding what a working
+Mentor needs to know, resolving it from versioned stores, and placing it into the
+working window at the right moment — instead of *context repetition*, where the
+human is the paging mechanism.
+
+This is the technical heart of the project. Everything else follows from it.
+
+### Second observation: expertise evaporates with its projects
+
+Projects end. The judgment developed inside them — what to prefer, what to avoid,
+what "good" looks like in this domain — usually ends with them. It lives in one
+head, is applied one decision at a time, and is recreated at full price by the
+next project, or the next hire, or the next conversation.
+
+**Expertise compounds — if it has somewhere to live.** AgentOS gives it a home:
+explicit, versioned, teachable units (GuruSeeds) that outlive the projects that
+produced them. An hour spent teaching the system is an hour invested, not spent.
+
+## Thesis
+
+- Model capability is no longer the bottleneck. Capturing, scheduling and
+  governing expertise is.
+- The human governs. The system proposes, explains and executes within granted
+  scope; the Pilot decides.
+- Expertise captured once applies everywhere it is relevant, forever, at near-zero
+  marginal cost.
+- Architecture precedes implementation, because a wrong abstraction grows more
+  expensive with every line built upon it.
 
 ## What Success Looks Like
 
 An owner can:
 
-1. **Teach** — encode a piece of judgment as a GuruSeed in minutes, not by
-   fine-tuning models but by writing explicit, reviewable heuristics.
-2. **Delegate** — hand a Workflow to a Mentor and trust that the Kernel enforces
-   cost, scope and safety limits.
-3. **Review** — see exactly which seeds, which context and which decisions produced
-   any Artifact.
-4. **Evolve** — observe which seeds perform, retire the ones that don't, and watch
-   the system's competence grow session over session.
-
-## Long-term Goal
-
-Create an operating system capable of orchestrating intelligent work while allowing
-its owner to explicitly **teach, review, evolve and govern** the intelligence inside it.
+1. **Teach** — encode a piece of judgment as a GuruSeed in minutes.
+2. **Delegate** — hand a Workflow to a Mentor, trusting the Kernel to enforce
+   effort, scope and approval limits.
+3. **Review** — trace any Artifact to the exact seeds, context and decisions that
+   produced it.
+4. **Evolve** — see which seeds perform, retire those that don't, and watch
+   competence grow session over session — without ever re-explaining.
 
 ## Non-Goals
 
-- Replacing human judgment. AgentOS amplifies the owner's thinking; it does not
-  substitute it.
-- Fully autonomous agents. Unbounded autonomy is explicitly out of scope.
-- A general-purpose framework for everyone. AgentOS is opinionated and owner-centric
-  by design; generalization is a possible future, not a requirement.
-- Model training. Expertise lives in explicit seeds and context, not in weights.
+- Replacing human judgment. The system amplifies its owner's thinking.
+- Unbounded autonomy. Autonomy is granted per scope and always revocable.
+- A framework for everyone. AgentOS is opinionated and owner-centric by design.
+- Model training. Expertise lives in explicit seeds and scheduled context,
+  not in weights.

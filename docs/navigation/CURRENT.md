@@ -4,36 +4,41 @@
 Build AgentOS — an operating system for reusable human expertise.
 
 ## Current Heading
-Foundation Revision 2 — consolidation.
+Foundation Revision 4 — the Foundation Book.
 
 ## Current State
-Foundation documents refined from skeleton (Rev 1) to substantive (Rev 2):
-- All terminology defined (roles / runtime / expertise capture / state / governance).
-- Conceptual architecture written: 5 layers, canonical flow, invariants, explicit
-  deferred decisions.
-- ADR process operating: template + ADR-0000/0001/0002 accepted.
-- Roadmap phased with exit criteria; Phase −1 closed, Phase 0 in progress.
-- Incubator ideas structured with promotion path.
+Foundation restructured as a book (why before how). Constitution (7 articles)
+supersedes Principles; context-scheduling elevated to Article 5 and ADR-0003.
+Architecture consolidated into three planes + Navigation outside the runtime;
+the Revision 3 linear chain reviewed and rejected on record. Effort Probe
+supersedes Cost Probe with a constitutive calibration loop. Seed Resolver
+renames InjectSeed. VISION absorbed MANIFESTO. Full review in
+docs/reviews/2026-07-REVIEW-OF-REVISION-3.md.
 
 ## Major Decisions
 - Repository remains private.
-- Architecture before implementation (ADR-0000).
-- Navigation is the Pilot/Copilot compass (ADR-0001).
+- Architecture before implementation (ADR-0000; Article 6).
+- Navigation is the Pilot/Copilot compass — Copilot-agnostic (ADR-0001).
 - Mentor Expertises replace personas (ADR-0002).
-- GuruSeeds represent reusable heuristics (definition fixed in TERMINOLOGY).
+- Context is a scheduled resource (ADR-0003; Article 5).
+- Constitution supersedes Principles (ADR-0004).
+- Seed Resolver renames InjectSeed (ADR-0005).
+- Effort Probe supersedes Cost Probe (ADR-0006).
 
 ## Open Questions
-- **Brand** — is "AgentOS" the final name? (Generic; collision risk. Pilot decision.)
-- **Seed lifecycle** — draft → active → refined → retired is sketched in
-  TERMINOLOGY; needs its own design doc + ADR before Phase 5.
-- **Mentor evolution** — how Expertises version and improve over time; depends on
-  Phase 4 composition model.
-- **Deployment model** — local-first vs. server (deferred in ARCHITECTURE.md).
+- **Brand** — "AgentOS" is generic, collision-prone, and (noted irony) the
+  Foundation barely uses the word Agent. Pilot decision.
+- **Seed Resolver determinism** — most load-bearing unproven claim; design ADR
+  owed before Phase 4 (see review, R3).
+- **Seed lifecycle** — design ADR owed before Phase 5.
+- **Deployment model** — local-first vs. server; ADR owed before Phase 1 code.
+- **Marketplace vs. single-Pilot assumption** — must be reconciled before that
+  idea leaves the Incubator (see review, R4).
 
 ## Next Bearing
-Close remaining Phase 0 exit criteria (see ROADMAP): resolve or formally defer the
-open questions above, then declare Foundation complete and open Phase 1 (Kernel)
-with its first design ADRs.
+Close Phase 0: resolve or formally defer the open questions, then declare the
+Foundation complete and open Phase 1 (Kernel) with the deployment-model and
+Effort-Probe design ADRs.
 
 ## Last Updated
-Session 002 — Foundation Revision 2.
+Session 003 — Foundation Revision 4.

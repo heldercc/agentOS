@@ -21,3 +21,16 @@ If Mentor Expertises are truly portable bundles, they can be shared or sold betw
 owners. Big open questions: trust model, seed provenance across owners, and whether
 owner-centric design (see VISION non-goals) survives multi-party expertise. Parked
 until Phase 4 proves the Expertise format.
+
+## Sub-agent Hierarchies — incubating
+
+Mentors orchestrating subordinate executor agents (the implicit structure in the
+rejected Revision 3 chain). Would introduce a second actor class; requires its
+own governance story (who audits the subordinate?). Not a Foundation concept.
+
+## Effort Probe ROI Modeling — incubating
+
+An economic layer over the Effort Probe: quality gain per unit of effort,
+portfolio-level "is this workflow worth automating?" analysis. Depends on a
+calibrated probe (ADR-0006) producing enough estimate/actual pairs. Research
+until then; the word "ROI" stays out of core documents until the probe earns it.

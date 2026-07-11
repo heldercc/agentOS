@@ -2,43 +2,37 @@
 
 > An Operating System for Reusable Human Expertise.
 
-AgentOS is an architecture-first research project exploring how human expertise can
-become **reusable, teachable and governable** through intelligent systems.
+This repository is not documentation. It is the **Foundation Book** of AgentOS:
+the philosophy, vocabulary, architecture and decision record of the project,
+written before any production code, intended to remain legible in ten years.
 
-This repository intentionally begins with philosophy, architecture and engineering
-decisions before any production code. Code that is written before its architecture
-is understood becomes legacy on the day it compiles.
+Code that is written before its architecture is understood becomes legacy on the
+day it compiles. This book exists so that never happens here.
 
 ## Status
 
-**Foundation — Revision 2** (architecture exploration, pre-implementation).
+**Foundation — Revision 4.**
 
-## Repository Map
+## The Book
 
-```
-docs/
-├── VISION.md          Why AgentOS exists and where it is going
-├── MANIFESTO.md       The beliefs behind the project
-├── PRINCIPLES.md      Non-negotiable rules that constrain every decision
-├── TERMINOLOGY.md     The shared vocabulary — read this first
-├── ARCHITECTURE.md    Conceptual architecture (layers, boundaries, flows)
-├── ROADMAP.md         Phased plan with objectives and exit criteria
-├── adrs/              Architecture Decision Records (immutable once accepted)
-├── navigation/        The Pilot/Copilot compass — session logs and CURRENT state
-└── incubator/         Ideas not yet promoted to the roadmap
-```
+Read in order. Each chapter explains *why* before *how*.
 
-## How to Read This Repository
-
-1. **TERMINOLOGY.md** — the vocabulary everything else depends on.
-2. **VISION.md → MANIFESTO.md → PRINCIPLES.md** — the why.
-3. **ARCHITECTURE.md** — the what.
-4. **navigation/CURRENT.md** — where the project stands right now.
+| Chapter | File | Question it answers |
+|---|---|---|
+| I | `docs/VISION.md` | Why does AgentOS exist? |
+| II | `docs/CONSTITUTION.md` | What will never be compromised? |
+| III | `docs/TERMINOLOGY.md` | What do our words mean? |
+| IV | `docs/ARCHITECTURE.md` | How is responsibility divided? |
+| V | `docs/ROADMAP.md` | In what order is it built? |
+| — | `docs/adrs/` | Why was each decision made? |
+| — | `docs/navigation/` | Where is the project right now? |
+| — | `docs/incubator/` | What is alive but not committed? |
+| — | `docs/reviews/` | What did each architectural review conclude? |
 
 ## Governance
 
-- The **Pilot** (human owner) is the final decision maker. Always.
-- Every significant decision becomes an **ADR**. ADRs are never edited after
-  acceptance — they are superseded by new ADRs.
-- The **Navigation** system records where the project has been and where it is
-  heading, so any session (human or AI copilot) can resume with full context.
+- The **Pilot** — the human owner — is the final authority. Always.
+- Significant decisions become **ADRs**. ADRs record *why*, never implementation.
+  Once accepted, an ADR is immutable; it can only be superseded.
+- **Navigation** preserves direction between sessions. Any session — with any
+  Copilot — begins by reading `navigation/CURRENT.md` and ends by updating it.

@@ -6,7 +6,7 @@ complete when its exit criteria are met and recorded in Navigation.
 ## Phase −1 · The Why ✔
 
 Establish the reason for AgentOS to exist.
-**Exit:** VISION, MANIFESTO and PRINCIPLES written and stable. *(Done — Session 001.)*
+**Exit:** VISION and the Constitution written and stable. *(Done — Session 001.)*
 
 ## Phase 0 · Foundation ← current
 
@@ -21,7 +21,7 @@ production code.
 
 ## Phase 1 · Kernel
 
-The governance core: work orders, budget enforcement (Cost Probe), approval gates,
+The governance core: work orders, budget enforcement (Effort Probe), approval gates,
 audit log, versioned stores.
 **Exit:** a Workflow can be authorized, metered, halted and fully audited — even if
 the "work" is trivial.
@@ -41,7 +41,7 @@ respected budgets.
 
 ## Phase 4 · Mentor Engine
 
-Mentor composition from Mentor Expertises; seed relevance for InjectSeed; Mentor
+Mentor composition from Mentor Expertises; seed relevance for Seed Resolver; Mentor
 versioning.
 **Exit:** two Mentors with different Expertises produce observably different,
 seed-attributable behavior on the same task.
@@ -56,6 +56,10 @@ sessions, and its effect is visible to the Pilot.
 ## Phase 6 · Self-improving Architecture
 
 The system proposes its own refinements — new seeds, retirements, workflow
-optimizations — always as *proposals* through Executive Mode (Principles 1 & 6).
+optimizations — always as *proposals* through Executive Mode (Articles 1 and 2 of the Constitution).
 **Exit:** at least one system-proposed, Pilot-approved improvement with measured
 positive effect.
+
+---
+*Revision 4 note: phase names are stable; "Executive UI" (Phase 2) is the
+implementation of Executive Mode — the Kernel's face — not an independent layer.*
