@@ -53,6 +53,9 @@ commoditized and swappable.
   evolution; founding 7-state sketch is the working draft.
 - **Deployment model** — DECIDED: local-first, file-based, running via Claude
   Code on the Pilot's machine (Session 004).
+- **Stack** — DECIDED: TypeScript strict engine + Tool Runner for
+  language-agnostic tools, Python first; native only where measured
+  (ADR-0010, Session 004).
 - **Marketplace vs. single-Pilot** — DEFERRED; blocks only the Marketplace
   idea leaving the Incubator.
 
@@ -65,4 +68,4 @@ the Pilot's PC. Then Phase 2: the daily Executive Loop with Seed Composer v0
 and Mentor management v0. Roadmap (Chapter V) is the build plan.
 
 ## Last Updated
-Session 004 — Article 8 ratified; repo reset & first push to github.com/heldercc/agentOS.
+Session 004 — ADR-0010 (stack) ratified. Phase 1 unblocked: next session writes kernel/.
