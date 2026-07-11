@@ -72,3 +72,15 @@ timing calls, ingredient triage — knowing the embodied craft stays with her.
 Seeds with provenance `taught by: Maria Rolanda`. Candidate for the first
 taught-Expertise once the App's daily loop exists; family heritage
 preservation as the most honest test of the founding thesis.
+
+## Multimodal Expertise Interview Pipeline — incubating (unifier)
+
+One pipeline, many faces: person + environment + camera/audio capture +
+interview questions → transcription (e.g. Whisper, local) → candidate seeds →
+the Pilot's gate. Environment-agnostic by design; output is always the same —
+validated seeds with provenance (`taught by: <person>`). Unifies three
+incubator ideas: Cozinha da Maria Rolanda, Senior Knowledge Capture, and
+skill interviews of any expert. Capture on phone, processing at the factory
+(PC), tools in Python via the Tool Runner (ADR-0010). Execute at the right
+moment — after the vertical experiment and the daily loop; raw material
+(recordings) can be gathered before the factory exists.
