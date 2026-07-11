@@ -78,6 +78,13 @@ for. Only then: Kernel v0 design ADR (Phase 1). Pilot's earlier flags remain:
 Constitution polish pass; SavePoint structural criteria when indexing begins;
 repo visibility decision still pending.
 
+## Sync Doctrine
+The Pilot builds multi-agent with GitHub as the shared drive: `origin/main`
+is the single shared truth for every Copilot (Claude, GPT, future cloud
+agents). Therefore **every commit is pushed immediately** — an unpushed
+commit is invisible state and breaks the model. (Pilot's standing grant,
+2026-07-12.) The repo-visibility pendência above still stands.
+
 ## Last Updated
 Session 005 (2026-07-11) — Book II opened. Built and committed: the ADR-0012
 rig (both context paths, real metering, blind eval, results), the ADR-0013
