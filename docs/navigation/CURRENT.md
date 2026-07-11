@@ -40,6 +40,11 @@ commoditized and swappable.
 - Seed Resolver renames InjectSeed (ADR-0005).
 - Effort Probe supersedes Cost Probe (ADR-0006).
 
+## Pilot Decisions Pending
+- **Article 8 candidate** — "Complexity must justify itself." Ratify or reject.
+- **Repo visibility** — currently PUBLIC, contradicting the Session 001
+  decision. Revert to private, or supersede by ADR + scrub business details.
+
 ## Open Questions — dispositioned at Phase 0 close
 - **Brand** — DEFERRED by the Pilot; "AgentOS" remains the working name.
   Revisit before anything becomes public.
