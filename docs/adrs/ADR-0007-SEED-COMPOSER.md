@@ -1,6 +1,6 @@
 # ADR-0007: Teaching and Resolution Are Distinct Mechanisms (Seed Composer)
 
-- **Status:** Proposed — awaits Pilot approval (name and concept)
+- **Status:** Accepted (ratified by the Pilot, Session 004)
 - **Date:** 2026-07 (Session 004)
 - **Deciders:** Pilot
 

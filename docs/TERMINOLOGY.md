@@ -58,6 +58,11 @@ New concepts enter here first.
   Distinct from Project State (per-project) and from seeds (judgment, not facts).
 - **Artifact** — any output of a Workflow: document, code, analysis, decision.
   Every Artifact carries provenance: the seed and context versions that produced it.
+- **Render Order** — the terminal Artifact of a creative production line: a
+  complete, renderer-agnostic specification (story, characters, shots, style,
+  production detail), accumulated through governed refinement across sessions.
+  So complete that execution (rendering) becomes a swappable commodity step.
+  Named for the first production line; the pattern generalizes to any vertical.
 
 ## Governance
 
