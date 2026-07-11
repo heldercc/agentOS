@@ -7,7 +7,9 @@ every decision already made. The engine is product-agnostic (ADR-0008); the
 first cargo is the 15-second fight spec, whose terminal Artifact is a
 **Render Order**.
 
-Phases are sequential in commitment, overlapping in exploration. A phase
+What the code must prove is fixed in Chapter VI (OBJECTIVES.md); phases
+below are the order of construction. Phases are sequential in commitment,
+overlapping in exploration. A phase
 closes when its exit criteria are met and recorded in Navigation.
 
 ## Phase −1 · The Why ✔
@@ -57,11 +59,12 @@ changes**.
 domain leakage from the engine.
 
 ## Phase 6 · Self-Improvement Under Governance
-The system proposes its own refinements — seed evolution, Mentor
-improvements, workflow optimizations — always as proposals through Executive
-Mode (Articles 1, 2, 4).
-**Exit:** one system-proposed, Pilot-approved improvement with measured
-positive effect.
+The Seed Harvester in production (ADR-0009): success signals → candidate
+seeds with evidence → Pilot validates → incorporation into Mentors or the
+system, provenance `learned`. Plus system-proposed Mentor and workflow
+refinements — always proposals through Executive Mode (Articles 1, 2, 4).
+**Exit:** Objective O4 proven — at least one harvested seed in active use,
+integrated by explicit Pilot decision, plus one measured improvement.
 
 ## Rendering (deliberately outside the roadmap)
 Executing a Render Order is a swappable downstream step (ComfyUI/Wan today,

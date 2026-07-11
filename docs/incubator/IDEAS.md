@@ -9,11 +9,10 @@ A sandboxed space inside the system where the Pilot can run Workflows against
 experimental seeds/Mentors without touching production state. Cheap A/B for
 expertise: same task, two seed sets, compare Artifacts.
 
-## Automatic Seed Evolution — incubating
+## Automatic Seed Evolution — PROMOTED to roadmap (ADR-0009)
 
-The system observes seed performance (approvals, rejections, edit distance between
-proposed and accepted Artifacts) and *proposes* refinements to GuruSeeds. Strictly
-proposal-only (Principle 1); natural extension of Phase 6.
+Promoted per the Incubator's own path (incubating → candidate → roadmap via
+ADR). Now lives as the Seed Harvester: ADR-0009, Objective O4, Phase 6.
 
 ## Mentor Marketplace — candidate
 

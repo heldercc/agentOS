@@ -11,7 +11,7 @@ day it compiles. This book exists so that never happens here.
 
 ## Status
 
-**Foundation — Revision 7 (Phase 0 closed — Book I complete).**
+**Foundation — Revision 8 (Book I complete; Book II chartered in Chapter VI).**
 
 This repository is **Book I — Foundation** of a declared four-book arc:
 Foundation, Engineering, Implementation, Evolution. Only Book I exists; the
@@ -28,6 +28,7 @@ Read in order. Each chapter explains *why* before *how*.
 | III | `docs/TERMINOLOGY.md` | What do our words mean? |
 | IV | `docs/ARCHITECTURE.md` | How is responsibility divided? |
 | V | `docs/ROADMAP.md` | In what order is it built? |
+| VI | `docs/OBJECTIVES.md` | What must the code prove? |
 | — | `docs/adrs/` | Why was each decision made? |
 | — | `docs/navigation/` | Where is the project right now? |
 | — | `docs/incubator/` | What is alive but not committed? |

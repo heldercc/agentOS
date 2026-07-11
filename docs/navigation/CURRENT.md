@@ -4,7 +4,7 @@
 Build AgentOS — an operating system for reusable human expertise.
 
 ## Current Heading
-Foundation Revision 7 — Phase 0 CLOSED. Next stop: code (Phase 1 Kernel).
+Foundation Revision 8 — Book I complete + Book II charter (Chapter VI). Next stop: code.
 
 ## Current State
 Copilot transition complete (founding Copilot → current Copilot); founding
@@ -59,4 +59,4 @@ the Pilot's PC. Then Phase 2: the daily Executive Loop with Seed Composer v0
 and Mentor management v0. Roadmap (Chapter V) is the build plan.
 
 ## Last Updated
-Session 004 (close) — Foundation Revision 7. Phase 0 complete.
+Session 004 — Foundation Revision 8. Book II objectives chartered.

@@ -1,6 +1,6 @@
 # Chapter IV — Architecture
 
-> Status: conceptual (Foundation Revision 7). This chapter fixes responsibilities
+> Status: conceptual (Foundation Revision 8). This chapter fixes responsibilities
 > and boundaries. Technology choices are deliberately deferred to Phase 1+ ADRs.
 
 ## Why This Shape

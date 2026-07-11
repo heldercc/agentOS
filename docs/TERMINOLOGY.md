@@ -32,10 +32,17 @@ New concepts enter here first.
   domain, the human knowledge itself, application context, explanation,
   refinement history. Small enough to state a heuristic; rich enough to explain
   a decision.
-- **Seed Composer** *(Proposed — ADR-0007)* — the teaching mechanism: the
+- **Seed Composer** (ADR-0007) — the teaching mechanism: the
   Pilot expresses expertise in natural language; the system interprets,
   structures, asks confirmation, saves and versions. The Pilot never writes
   formats. Composer puts seeds in; the Resolver takes them out.
+- **Seed Harvester** (ADR-0009) — the learning mechanism: observes governance
+  outcomes, detects recurring success (an output or feature selected
+  repeatedly), distills it into a candidate seed and presents it to the Pilot
+  with evidence. Incorporation happens only upon the Pilot's validation.
+- **Seed origin** — every GuruSeed records how it entered: `taught` (via
+  Composer, directly from the Pilot) or `learned` (via Harvester, from
+  observed success, validated by the Pilot). Two origins, one gate.
 - **Seed Resolver** — the mechanism that, for a given task, resolves which
   GuruSeeds belong in a Mentor's context. Resolution is deterministic and logged:
   for any action, it is always knowable which seeds were active and why.
