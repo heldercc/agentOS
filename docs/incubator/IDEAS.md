@@ -40,3 +40,11 @@ Founding-session idea: Executive Mode surfaces project health indicators —
 budget burn vs. estimate, seed hit-rate, stale open decisions, drift signals.
 A dashboard for governing, not working. Natural Phase 2+ extension; recovered
 via the founding knowledge export (Session 004).
+
+## Senior Knowledge Capture (factories) — incubating, parked by Pilot
+
+Point the engine at retiring senior experts in industrial SMEs: Seed Composer
+as interview tool, their heuristics captured as validated seeds before they
+walk out the door. Real market, hard extraction problem. Parked by explicit
+Pilot decision (Session 004) — focus stays on the agnostic engine; candidate
+for the Phase 5 vertical alongside the fiscal niches.
