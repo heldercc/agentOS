@@ -41,7 +41,6 @@ commoditized and swappable.
 - Effort Probe supersedes Cost Probe (ADR-0006).
 
 ## Pilot Decisions Pending
-- **Article 8 candidate** — "Complexity must justify itself." Ratify or reject.
 - **Repo visibility** — currently PUBLIC, contradicting the Session 001
   decision. Revert to private, or supersede by ADR + scrub business details.
 
@@ -58,10 +57,12 @@ commoditized and swappable.
   idea leaving the Incubator.
 
 ## Next Bearing
-CODE. Phase 1 (Kernel): file-based stores, work orders, audit log, effort
+First: a Constitution improvement pass (Pilot's instruction — polish the eight
+articles before any code). Pilot also flagged: revisit the structural criteria
+rejected in the SavePoint review when indexing work begins. Then CODE. Phase 1 (Kernel): file-based stores, work orders, audit log, effort
 metering v0, zero domain words in the engine (ADR-0008) — via Claude Code on
 the Pilot's PC. Then Phase 2: the daily Executive Loop with Seed Composer v0
 and Mentor management v0. Roadmap (Chapter V) is the build plan.
 
 ## Last Updated
-Session 004 — Foundation Revision 8. Book II objectives chartered.
+Session 004 — Article 8 ratified; repo reset & first push to github.com/heldercc/agentOS.

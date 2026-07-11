@@ -46,6 +46,13 @@ A capability is automated only after its behavior can be observed, measured and
 audited. Automation added before transparency accumulates invisible risk; the
 order is not negotiable.
 
+## Article 8 — Complexity Must Justify Itself
+
+Every abstraction, layer, mechanism and document must earn its place by making
+the system simpler to govern, teach or reuse. Complexity that cannot state its
+justification is removed. (Proposed by the founding Copilot; ratified by the
+Pilot, Session 004.)
+
 ---
 
 *Lineage: the Constitution supersedes the earlier "Principles" (Revisions 1–2).

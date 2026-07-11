@@ -29,11 +29,9 @@ Future ADR · Constitution Candidate.**
   major_decisions) — premature at 3 heritage documents; adopt when heritage
   outgrows a flat folder.
 
-## Constitution Candidate (awaits Pilot ratification — Copilot cannot amend)
-- **"Complexity must justify itself."** — genuinely good, arguably the article
-  this Constitution is missing (it is the spirit behind ADR-0004's split and
-  the three-planes rejection of the chain). Proposed as Article 8. The Pilot
-  decides; until then it is recorded here, not in Chapter II.
+## Constitution Candidate → RATIFIED
+- **"Complexity must justify itself."** — proposed here as Article 8; ratified
+  by the Pilot in-session. Now in Chapter II.
 
 ## Also noted
 - "Records" as the State Plane's name — considered; "State" retained (Records
