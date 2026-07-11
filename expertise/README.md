@@ -1,5 +1,8 @@
 # Expertise Store (pre-Phase-1 staging)
 
+> "Vamos buscar sumo a muitos lados, mas só ficamos com as pingas douradas."
+> — the Pilot, Session 004. This is the curation doctrine.
+
 Curated expertise awaiting the coded State Plane. When the Kernel exists,
 everything here migrates into the seed/Expertise stores with its provenance
 intact. Three origins, one gate (the Pilot): `taught` · `learned` · `imported`.
