@@ -55,6 +55,15 @@ the system simpler to govern, teach or reuse. Complexity that cannot state its
 justification is removed. (Proposed by the founding Copilot; ratified by the
 Pilot, Session 004.)
 
+## Article 9 — Certainty Precedes Action
+
+No actor in this system — an agent building AgentOS, or the system itself at
+work — advances on an assumption. When confidence in the governing intent falls
+below ninety percent, the actor stops and interviews the Pilot until the doubt
+is resolved. Asking is never a failure; guessing is. (Proposed by the Pilot;
+ratified via ADR-0014, threshold revised 95% → 90% by the Pilot before
+ratification.)
+
 ---
 
 *Lineage: the Constitution supersedes the earlier "Principles" (Revisions 1–2).
