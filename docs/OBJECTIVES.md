@@ -5,6 +5,42 @@ code must *prove*. Each objective is concrete, testable, and owned by the
 Pilot; Book II (Engineering) begins by turning these into designs, and every
 future demo is measured against this list — nothing else.
 
+## The Two Grand Objectives
+
+Registered by the Pilot, 2026-07-12 (Session 006), as the two poles that
+everything below serves. Neither is new — both were already distributed
+across O1–O9 — but the hierarchy is now explicit: when priorities collide,
+these two win, and every owed ADR must say which pole it feeds.
+
+**Grand Objective A — Token economy (the Kernel; pure engineering).**
+Saving and better use of tokens. Not a cliché: the system is designed to
+scale, and at scale context cost is the survival variable. Everything
+already decided points here — context as a scheduled resource (ADR-0003),
+the Beta question frozen on exactly this bet (ADR-0012), the Effort Probe
+(ADR-0006), O7 as the proof. Evidence from the expertise store:
+just-in-time-context (over-loading degrades *reasoning*, not just cost — the
+scheduler may win on quality, not merely hold it).
+*Served by: O7, and the Kernel/Scheduler/Effort-Probe ADRs owed in
+engineering/OVERVIEW.md §5.*
+
+**Grand Objective B — Taste governance by clicks (the user's loop).**
+The agentOS user improves their own agents with their own taste, entirely in
+governance mode: go to the app, verify results, approve, iterate — "kit kat,
+back to the app" — day after day. Selection is the teaching signal: work the
+Pilot chooses more often is suggested more often, distilled into candidate
+seeds the Pilot validates (never auto-admitted — O5). Deliberate workaround:
+no direct API access, no fine-tuning, no m2m — the learning lives embedded
+in the agentOS UI as seeds plus selection evidence, so iteration is *easy
+with clicks* (ADR-0013 spirit). Evidence from the expertise store:
+recognition-over-recall (experts teach best by correcting concrete cases —
+which is exactly what an approve/reject click is) and approval-fatigue
+(clicks must stay few and meaningful, or the gate stops being a gate).
+*Served by: O1, O2, O3, O4, O5, O6; surface owed as the Executive Mode /
+App shell ADR.*
+
+The two poles check each other: A without B is a cheap engine nobody can
+steer; B without A is a governance toy that dies at scale.
+
 ## O1 — The Daily Governance Loop
 
 Open the App → the Kernel loads Project State (nothing re-explained) → open

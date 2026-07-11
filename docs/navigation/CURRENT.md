@@ -65,6 +65,10 @@ commoditized and swappable.
   idea leaving the Incubator.
 
 ## Next Bearing
+The Two Grand Objectives are now explicit (docs/OBJECTIVES.md): (A) token
+economy — the Kernel; (B) taste governance by clicks — the user's loop.
+ADR-0015 (Beta 2: the governance question, Grand Objective B's experiment)
+is PROPOSED and awaits the Pilot's ratification.
 Discharge the Beta (ADR-0012), in order: (1) the Pilot authors the real
 fight-scene corpus (data/ placeholders out); (2) review of the authored data
 against the corpus-shaping risk (engineering/OVERVIEW.md §6); (3) one real
@@ -82,10 +86,10 @@ commit is invisible state and breaks the model. (Pilot's standing grant,
 2026-07-12.)
 
 ## Last Updated
-Session 006 (2026-07-12) — Fishing Expedition 2 (GPT net) gated: 10 → 2
-admitted (pointwise-before-pairwise, knowledge-freshness), 3 noted, 5
-rejected; expertise store at 15. GPT's Trawler+Camera proposal dispositioned:
-already our pattern; four zero-infrastructure controls adopted (manifest,
-cost-per-admitted-drop, counterevidence queries, dedup at the gate); build
-nothing. Net retired until new ADRs open new waters. Next Bearing unchanged:
-the Pilot's real fight-scene corpus is still the number-one unblocker.
+Session 006 (2026-07-12) — Expedition 2 gated (15 seeds; net retired);
+Trawler+Camera dispositioned (build nothing, four controls adopted). Then:
+the Pilot registered the Two Grand Objectives (A: token economy / B: taste
+governance by clicks — docs/OBJECTIVES.md) and ordered Beta 2's direction;
+ADR-0015 (the governance question) drafted as Proposed, ADR-0012 discipline.
+The Pilot's real fight-scene corpus remains the number-one unblocker for
+both Betas.
