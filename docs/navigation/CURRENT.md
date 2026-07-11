@@ -72,8 +72,7 @@ comparison run through the manual port (dashboard, option 1 in beta.bat);
 (4) the Pilot judges blind; (5) RESULTS.md recorded against the three
 committed exits; (6) the devil's-advocate review with Fable 5 the Pilot asked
 for. Only then: Kernel v0 design ADR (Phase 1). Pilot's earlier flags remain:
-Constitution polish pass; SavePoint structural criteria when indexing begins;
-repo visibility decision still pending.
+Constitution polish pass; SavePoint structural criteria when indexing begins.
 
 ## Sync Doctrine
 The Pilot builds multi-agent with GitHub as the shared drive: `origin/main`
