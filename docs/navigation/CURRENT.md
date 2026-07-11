@@ -82,9 +82,10 @@ commit is invisible state and breaks the model. (Pilot's standing grant,
 2026-07-12.)
 
 ## Last Updated
-Session 005 (2026-07-11) — Book II opened. Built and committed: the ADR-0012
-rig (both context paths, real metering, blind eval, results), the ADR-0013
-manual port + conductor, the local dashboard (run/judge/results in the
-browser), Article 9 (ADR-0014), and the Book II engineering plan
-(engineering/OVERVIEW.md) answering the founding GPT brief (preserved in
-docs/heritage/). Development operator: Claude Code on the Pilot's PC.
+Session 006 (2026-07-12) — Fishing Expedition 2 (GPT net) gated: 10 → 2
+admitted (pointwise-before-pairwise, knowledge-freshness), 3 noted, 5
+rejected; expertise store at 15. GPT's Trawler+Camera proposal dispositioned:
+already our pattern; four zero-infrastructure controls adopted (manifest,
+cost-per-admitted-drop, counterevidence queries, dedup at the gate); build
+nothing. Net retired until new ADRs open new waters. Next Bearing unchanged:
+the Pilot's real fight-scene corpus is still the number-one unblocker.
