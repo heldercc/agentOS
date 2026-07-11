@@ -1,0 +1,12 @@
+{
+  "workOrderId": "scheduled--task-continuation",
+  "model": "fake",
+  "requestId": null,
+  "inputTokens": 1044,
+  "outputTokens": 74,
+  "cacheCreationInputTokens": 0,
+  "cacheReadInputTokens": 0,
+  "timestamp": "2026-07-11T22:08:31.313Z",
+  "durationMs": 0,
+  "estimated": true
+}

@@ -1,0 +1,96 @@
+{
+  "workOrderId": "scheduled--task-palette-callout",
+  "path": "scheduled",
+  "elements": [
+    {
+      "ref": {
+        "id": "mentor",
+        "version": "03ecfe1",
+        "path": "experiments/beta-coding/data/project/mentor.md",
+        "sha256": "d4fc254026103be4deaa07a4ca8e6881c099f5ac61f327859cf870fb2fb47b98"
+      },
+      "kind": "mentor",
+      "chars": 642,
+      "selectionReason": "scheduled: the worker (always included)"
+    },
+    {
+      "ref": {
+        "id": "seed-doctrine",
+        "version": "d382112",
+        "path": "experiments/beta-coding/data/project/seeds/seed-doctrine.md",
+        "sha256": "9c59d851210265c91a1728966e9e2c2b190e119da9197302e2c022fba747683f"
+      },
+      "kind": "seed",
+      "chars": 368,
+      "selectionReason": "scheduled: core (always included)"
+    },
+    {
+      "ref": {
+        "id": "seed-palette",
+        "version": "03ecfe1",
+        "path": "experiments/beta-coding/data/project/seeds/seed-palette.md",
+        "sha256": "9183de730d862137afc25cf38662a1ddd0f0f0780d72ff52b13e2a9350842ca2"
+      },
+      "kind": "seed",
+      "chars": 354,
+      "selectionReason": "scheduled: tag-match [color, style]"
+    },
+    {
+      "ref": {
+        "id": "state-arena",
+        "version": "d382112",
+        "path": "experiments/beta-coding/data/project/state/state-arena.md",
+        "sha256": "587ba8de3b3cf5573351f468570e349b0dde7b78ae54d082d5057b9733750a69"
+      },
+      "kind": "state",
+      "chars": 366,
+      "selectionReason": "scheduled: tag-match [color]"
+    },
+    {
+      "ref": {
+        "id": "state-characters",
+        "version": "03ecfe1",
+        "path": "experiments/beta-coding/data/project/state/state-characters.md",
+        "sha256": "09b37d74574de27a4af30ce7c994fc187fafb1787cf92c81e68b0dcb49cde04d"
+      },
+      "kind": "state",
+      "chars": 381,
+      "selectionReason": "scheduled: tag-match [character]"
+    },
+    {
+      "ref": {
+        "id": "state-open",
+        "version": "d382112",
+        "path": "experiments/beta-coding/data/project/state/state-open.md",
+        "sha256": "cd27831a8d17341e4e5835bc36e329497da4f4d236337a4f9c854767b9a6baf4"
+      },
+      "kind": "state",
+      "chars": 412,
+      "selectionReason": "scheduled: tag-match [character]"
+    },
+    {
+      "ref": {
+        "id": "state-style",
+        "version": "d382112",
+        "path": "experiments/beta-coding/data/project/state/state-style.md",
+        "sha256": "2e10ac0a73dc2ad9d2de41742168438e1becbb9cc1c403abe898b9de9baea589"
+      },
+      "kind": "state",
+      "chars": 399,
+      "selectionReason": "scheduled: tag-match [style]"
+    },
+    {
+      "ref": {
+        "id": "task-palette-callout",
+        "version": "task",
+        "path": "data/tasks/task-palette-callout",
+        "sha256": ""
+      },
+      "kind": "task",
+      "chars": 149,
+      "selectionReason": "scheduled: the task"
+    }
+  ],
+  "assembledSha256": "01a2e16cc95b703c40ba668b0aec76281e130428011175b48b93bd8eed1415f2",
+  "measuredInputTokens": 961
+}

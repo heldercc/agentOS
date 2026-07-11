@@ -1,0 +1,10 @@
+{
+  "id": "full-reload--task-palette-callout",
+  "runId": "fake-2026-07-11T22-08-37",
+  "taskId": "task-palette-callout",
+  "path": "full-reload",
+  "model": "fake",
+  "maxTokens": 8000,
+  "createdAt": "2026-07-11T22:08:39.351Z",
+  "status": "executed"
+}

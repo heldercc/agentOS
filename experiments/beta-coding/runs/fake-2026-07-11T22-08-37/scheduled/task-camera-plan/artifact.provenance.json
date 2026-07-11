@@ -1,0 +1,13 @@
+{
+  "artifactId": "scheduled--task-camera-plan--artifact",
+  "workOrderId": "scheduled--task-camera-plan",
+  "taskId": "task-camera-plan",
+  "path": "scheduled",
+  "contextManifest": "manifest.json",
+  "producedBy": {
+    "model": "fake",
+    "requestId": null
+  },
+  "sha256": "cfba11e044c19c16ff2b091e6b2621d6ddaa4b3c82ea37a1e621168ec24a5484",
+  "createdAt": "2026-07-11T22:08:40.691Z"
+}

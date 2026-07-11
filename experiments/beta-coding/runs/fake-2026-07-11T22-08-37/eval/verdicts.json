@@ -1,0 +1,29 @@
+{
+  "runId": "fake-2026-07-11T22-08-37",
+  "verdicts": [
+    {
+      "taskId": "task-timing-chart",
+      "verdict": ""
+    },
+    {
+      "taskId": "task-palette-callout",
+      "verdict": ""
+    },
+    {
+      "taskId": "task-camera-plan",
+      "verdict": ""
+    },
+    {
+      "taskId": "task-sound-design",
+      "verdict": ""
+    },
+    {
+      "taskId": "task-continuation",
+      "verdict": ""
+    },
+    {
+      "taskId": "task-open-creative",
+      "verdict": ""
+    }
+  ]
+}

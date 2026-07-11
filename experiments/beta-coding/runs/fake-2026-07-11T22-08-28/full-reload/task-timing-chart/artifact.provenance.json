@@ -1,0 +1,13 @@
+{
+  "artifactId": "full-reload--task-timing-chart--artifact",
+  "workOrderId": "full-reload--task-timing-chart",
+  "taskId": "task-timing-chart",
+  "path": "full-reload",
+  "contextManifest": "manifest.json",
+  "producedBy": {
+    "model": "fake",
+    "requestId": null
+  },
+  "sha256": "0d1f76ff20d45d388fbdcd1aa8f46c3cb1e6efec2a46f98747a9da519af6dc14",
+  "createdAt": "2026-07-11T22:08:29.550Z"
+}

@@ -1,0 +1,12 @@
+{
+  "workOrderId": "full-reload--task-sound-design",
+  "model": "fake",
+  "requestId": null,
+  "inputTokens": 1704,
+  "outputTokens": 74,
+  "cacheCreationInputTokens": 0,
+  "cacheReadInputTokens": 0,
+  "timestamp": "2026-07-11T22:08:39.380Z",
+  "durationMs": 0,
+  "estimated": true
+}

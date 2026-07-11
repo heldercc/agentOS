@@ -1,0 +1,10 @@
+{
+  "id": "scheduled--task-timing-chart",
+  "runId": "fake-2026-07-11T22-08-37",
+  "taskId": "task-timing-chart",
+  "path": "scheduled",
+  "model": "fake",
+  "maxTokens": 8000,
+  "createdAt": "2026-07-11T22:08:40.664Z",
+  "status": "executed"
+}

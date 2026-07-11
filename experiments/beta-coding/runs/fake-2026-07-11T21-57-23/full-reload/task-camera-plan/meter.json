@@ -1,0 +1,12 @@
+{
+  "workOrderId": "full-reload--task-camera-plan",
+  "model": "fake",
+  "requestId": null,
+  "inputTokens": 1705,
+  "outputTokens": 74,
+  "cacheCreationInputTokens": 0,
+  "cacheReadInputTokens": 0,
+  "timestamp": "2026-07-11T21:57:25.171Z",
+  "durationMs": 0,
+  "estimated": true
+}

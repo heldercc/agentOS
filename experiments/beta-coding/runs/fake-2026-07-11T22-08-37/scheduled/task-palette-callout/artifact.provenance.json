@@ -1,0 +1,13 @@
+{
+  "artifactId": "scheduled--task-palette-callout--artifact",
+  "workOrderId": "scheduled--task-palette-callout",
+  "taskId": "task-palette-callout",
+  "path": "scheduled",
+  "contextManifest": "manifest.json",
+  "producedBy": {
+    "model": "fake",
+    "requestId": null
+  },
+  "sha256": "ffb467dcf4b298aed5b0a360eab510523c1d3d90fc9382538dd0b3556e7c3ecf",
+  "createdAt": "2026-07-11T22:08:40.682Z"
+}

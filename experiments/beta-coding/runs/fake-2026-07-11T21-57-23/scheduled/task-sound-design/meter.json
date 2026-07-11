@@ -1,0 +1,12 @@
+{
+  "workOrderId": "scheduled--task-sound-design",
+  "model": "fake",
+  "requestId": null,
+  "inputTokens": 685,
+  "outputTokens": 74,
+  "cacheCreationInputTokens": 0,
+  "cacheReadInputTokens": 0,
+  "timestamp": "2026-07-11T21:57:27.034Z",
+  "durationMs": 1,
+  "estimated": true
+}

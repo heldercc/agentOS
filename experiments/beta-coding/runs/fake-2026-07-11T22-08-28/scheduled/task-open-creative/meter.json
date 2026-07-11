@@ -1,0 +1,12 @@
+{
+  "workOrderId": "scheduled--task-open-creative",
+  "model": "fake",
+  "requestId": null,
+  "inputTokens": 373,
+  "outputTokens": 74,
+  "cacheCreationInputTokens": 0,
+  "cacheReadInputTokens": 0,
+  "timestamp": "2026-07-11T22:08:31.320Z",
+  "durationMs": 0,
+  "estimated": true
+}

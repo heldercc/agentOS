@@ -49,19 +49,28 @@ data/           the entire domain — Mentor, docs, seeds, state, tasks (all PLA
 runs/<runId>/   per-work-order audit trail (committed — results are evidence)
 ```
 
-## One-click (recommended)
+## One-click (recommended): the dashboard
 
-Double-click **`tools/beta.bat`**. Pick a model:
+Double-click **`tools/beta.bat`** and pick **[1] Dashboard** (or run
+`npm run dashboard`). A local page opens at `http://localhost:4600` where you:
 
-- **Fake** — instant, free, proves the pipeline.
-- **Manual** — spawns a Claude Code per work order on *your subscription* (no API
-  wallet — ADR-0013). It starts the mailbox watcher, runs the whole comparison,
-  opens the blind sheet for you to judge, then produces `RESULTS.md`.
+- start a comparison run (fake or manual) with one button — baseline first is
+  still enforced by the engine;
+- watch progress live (per-task log, mailbox worker status);
+- judge the blind sheet with **A / B / Empate** buttons, side by side — no more
+  hand-editing `verdicts.json`;
+- generate and read `RESULTS.md` rendered in place. Results are write-once:
+  generating them closes the verdicts (the UI warns you first).
 
-The bridge is managed for you: the engine drops prompts in `mailbox/outbox/`, the
-watcher (`tools/spawn.bat`) spawns Claude Code and writes answers to
-`mailbox/inbox/`, and the engine collects them. If your Claude CLI isn't
-`claude -p`, set `WORKER_CMD` before launching.
+The dashboard hosts the manual-model worker itself: it spawns one Claude Code
+per work order on *your subscription* (no API wallet — ADR-0013) and manages the
+mailbox bridge end to end. It requires the Claude Code CLI logged in once
+(`claude` in any terminal). If your worker command differs, set `WORKER_CMD`
+(default `claude -p`). The server binds to `127.0.0.1` only — nothing leaves
+the machine.
+
+The console flow (options 2–4 in `beta.bat`, watcher in `tools/spawn.bat`)
+remains as a fallback.
 
 ## Running it (manual CLI)
 

@@ -1,0 +1,12 @@
+{
+  "workOrderId": "scheduled--task-timing-chart",
+  "model": "fake",
+  "requestId": null,
+  "inputTokens": 905,
+  "outputTokens": 74,
+  "cacheCreationInputTokens": 0,
+  "cacheReadInputTokens": 0,
+  "timestamp": "2026-07-11T22:08:31.284Z",
+  "durationMs": 0,
+  "estimated": true
+}

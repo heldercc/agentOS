@@ -1,0 +1,173 @@
+{
+  "workOrderId": "full-reload--task-camera-plan",
+  "path": "full-reload",
+  "elements": [
+    {
+      "ref": {
+        "id": "mentor",
+        "version": "03ecfe1",
+        "path": "experiments/beta-coding/data/project/mentor.md",
+        "sha256": "d4fc254026103be4deaa07a4ca8e6881c099f5ac61f327859cf870fb2fb47b98"
+      },
+      "kind": "mentor",
+      "chars": 642,
+      "selectionReason": "full-reload: everything"
+    },
+    {
+      "ref": {
+        "id": "doc:brief.md",
+        "version": "03ecfe1",
+        "path": "experiments/beta-coding/data/project/docs/brief.md",
+        "sha256": "8f642fb69e96a797cce7a3e2390c35c87966f06a7a3d2235f97e14ffa1ab96ad"
+      },
+      "kind": "doc",
+      "chars": 429,
+      "selectionReason": "full-reload: everything"
+    },
+    {
+      "ref": {
+        "id": "seed-camera",
+        "version": "d382112",
+        "path": "experiments/beta-coding/data/project/seeds/seed-camera.md",
+        "sha256": "7f6bcd73c13554a8f4cc19c0c86a538c2bef74aa31d6bdbbaf88a8ff33607dc0"
+      },
+      "kind": "seed",
+      "chars": 364,
+      "selectionReason": "full-reload: everything"
+    },
+    {
+      "ref": {
+        "id": "seed-doctrine",
+        "version": "d382112",
+        "path": "experiments/beta-coding/data/project/seeds/seed-doctrine.md",
+        "sha256": "9c59d851210265c91a1728966e9e2c2b190e119da9197302e2c022fba747683f"
+      },
+      "kind": "seed",
+      "chars": 368,
+      "selectionReason": "full-reload: everything"
+    },
+    {
+      "ref": {
+        "id": "seed-impact",
+        "version": "d382112",
+        "path": "experiments/beta-coding/data/project/seeds/seed-impact.md",
+        "sha256": "2027720c9afa98acbb8e8e00007093b846ae0ccd2c3abfd434053065268d837e"
+      },
+      "kind": "seed",
+      "chars": 336,
+      "selectionReason": "full-reload: everything"
+    },
+    {
+      "ref": {
+        "id": "seed-pacing",
+        "version": "03ecfe1",
+        "path": "experiments/beta-coding/data/project/seeds/seed-pacing.md",
+        "sha256": "9e932956ed4e9e0bd0a5510c0290688f4219419d92e382145ade49cfe1d6fcf3"
+      },
+      "kind": "seed",
+      "chars": 335,
+      "selectionReason": "full-reload: everything"
+    },
+    {
+      "ref": {
+        "id": "seed-palette",
+        "version": "03ecfe1",
+        "path": "experiments/beta-coding/data/project/seeds/seed-palette.md",
+        "sha256": "9183de730d862137afc25cf38662a1ddd0f0f0780d72ff52b13e2a9350842ca2"
+      },
+      "kind": "seed",
+      "chars": 354,
+      "selectionReason": "full-reload: everything"
+    },
+    {
+      "ref": {
+        "id": "seed-sound",
+        "version": "d382112",
+        "path": "experiments/beta-coding/data/project/seeds/seed-sound.md",
+        "sha256": "96079455bbb5b53dfd598446368b51ef9de478fc26e0470e1e523078458d963a"
+      },
+      "kind": "seed",
+      "chars": 314,
+      "selectionReason": "full-reload: everything"
+    },
+    {
+      "ref": {
+        "id": "state-arena",
+        "version": "d382112",
+        "path": "experiments/beta-coding/data/project/state/state-arena.md",
+        "sha256": "587ba8de3b3cf5573351f468570e349b0dde7b78ae54d082d5057b9733750a69"
+      },
+      "kind": "state",
+      "chars": 366,
+      "selectionReason": "full-reload: everything"
+    },
+    {
+      "ref": {
+        "id": "state-audio",
+        "version": "d382112",
+        "path": "experiments/beta-coding/data/project/state/state-audio.md",
+        "sha256": "b3543633440cd3ba6a05240b181cabff2b3726eb1ccb272e77037c4c692927b5"
+      },
+      "kind": "state",
+      "chars": 348,
+      "selectionReason": "full-reload: everything"
+    },
+    {
+      "ref": {
+        "id": "state-characters",
+        "version": "03ecfe1",
+        "path": "experiments/beta-coding/data/project/state/state-characters.md",
+        "sha256": "09b37d74574de27a4af30ce7c994fc187fafb1787cf92c81e68b0dcb49cde04d"
+      },
+      "kind": "state",
+      "chars": 381,
+      "selectionReason": "full-reload: everything"
+    },
+    {
+      "ref": {
+        "id": "state-open",
+        "version": "d382112",
+        "path": "experiments/beta-coding/data/project/state/state-open.md",
+        "sha256": "cd27831a8d17341e4e5835bc36e329497da4f4d236337a4f9c854767b9a6baf4"
+      },
+      "kind": "state",
+      "chars": 412,
+      "selectionReason": "full-reload: everything"
+    },
+    {
+      "ref": {
+        "id": "state-shotlist",
+        "version": "03ecfe1",
+        "path": "experiments/beta-coding/data/project/state/state-shotlist.md",
+        "sha256": "8fed4bd9715d838849111d4097f455df8f9d2d05ab2911d5955edbf197684e47"
+      },
+      "kind": "state",
+      "chars": 353,
+      "selectionReason": "full-reload: everything"
+    },
+    {
+      "ref": {
+        "id": "state-style",
+        "version": "d382112",
+        "path": "experiments/beta-coding/data/project/state/state-style.md",
+        "sha256": "2e10ac0a73dc2ad9d2de41742168438e1becbb9cc1c403abe898b9de9baea589"
+      },
+      "kind": "state",
+      "chars": 399,
+      "selectionReason": "full-reload: everything"
+    },
+    {
+      "ref": {
+        "id": "task-camera-plan",
+        "version": "task",
+        "path": "data/tasks/task-camera-plan",
+        "sha256": ""
+      },
+      "kind": "task",
+      "chars": 148,
+      "selectionReason": "full-reload: the task"
+    }
+  ],
+  "assembledSha256": "d7715975e2a14feba926be99830d20fac3c4a56cea01a99ed182d15ccecc26a2",
+  "measuredInputTokens": 1705
+}

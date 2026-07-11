@@ -1,0 +1,13 @@
+{
+  "artifactId": "full-reload--task-palette-callout--artifact",
+  "workOrderId": "full-reload--task-palette-callout",
+  "taskId": "task-palette-callout",
+  "path": "full-reload",
+  "contextManifest": "manifest.json",
+  "producedBy": {
+    "model": "fake",
+    "requestId": null
+  },
+  "sha256": "d715de686fa6597ad1b69dafdda2804fac89f37b06c1e3e9392a6ab72557d16e",
+  "createdAt": "2026-07-11T21:57:25.164Z"
+}

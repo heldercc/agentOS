@@ -15,6 +15,7 @@
     "run:baseline": "tsx src/cli/run.ts --path full-reload --model fake",
     "run:scheduled": "tsx src/cli/run.ts --path scheduled --model fake",
     "conduct": "tsx src/cli/conduct.ts",
+    "dashboard": "tsx src/cli/dashboard.ts",
     "measure": "tsx src/cli/measure.ts",
     "blind": "tsx src/cli/blind.ts",
     "results": "tsx src/cli/results.ts",

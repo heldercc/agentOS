@@ -1,0 +1,10 @@
+{
+  "id": "full-reload--task-sound-design",
+  "runId": "fake-2026-07-11T21-57-23",
+  "taskId": "task-sound-design",
+  "path": "full-reload",
+  "model": "fake",
+  "maxTokens": 8000,
+  "createdAt": "2026-07-11T21:57:25.178Z",
+  "status": "executed"
+}

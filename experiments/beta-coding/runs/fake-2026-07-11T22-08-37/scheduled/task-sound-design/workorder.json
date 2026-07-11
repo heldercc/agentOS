@@ -1,0 +1,10 @@
+{
+  "id": "scheduled--task-sound-design",
+  "runId": "fake-2026-07-11T22-08-37",
+  "taskId": "task-sound-design",
+  "path": "scheduled",
+  "model": "fake",
+  "maxTokens": 8000,
+  "createdAt": "2026-07-11T22:08:40.694Z",
+  "status": "executed"
+}

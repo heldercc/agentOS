@@ -1,0 +1,10 @@
+{
+  "id": "full-reload--task-camera-plan",
+  "runId": "fake-2026-07-11T22-08-28",
+  "taskId": "task-camera-plan",
+  "path": "full-reload",
+  "model": "fake",
+  "maxTokens": 8000,
+  "createdAt": "2026-07-11T22:08:29.563Z",
+  "status": "executed"
+}

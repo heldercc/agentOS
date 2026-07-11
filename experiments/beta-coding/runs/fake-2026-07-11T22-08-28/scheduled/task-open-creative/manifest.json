@@ -1,0 +1,41 @@
+{
+  "workOrderId": "scheduled--task-open-creative",
+  "path": "scheduled",
+  "elements": [
+    {
+      "ref": {
+        "id": "mentor",
+        "version": "03ecfe1",
+        "path": "experiments/beta-coding/data/project/mentor.md",
+        "sha256": "d4fc254026103be4deaa07a4ca8e6881c099f5ac61f327859cf870fb2fb47b98"
+      },
+      "kind": "mentor",
+      "chars": 642,
+      "selectionReason": "scheduled: the worker (always included)"
+    },
+    {
+      "ref": {
+        "id": "seed-doctrine",
+        "version": "d382112",
+        "path": "experiments/beta-coding/data/project/seeds/seed-doctrine.md",
+        "sha256": "9c59d851210265c91a1728966e9e2c2b190e119da9197302e2c022fba747683f"
+      },
+      "kind": "seed",
+      "chars": 368,
+      "selectionReason": "scheduled: core (always included)"
+    },
+    {
+      "ref": {
+        "id": "task-open-creative",
+        "version": "task",
+        "path": "data/tasks/task-open-creative",
+        "sha256": ""
+      },
+      "kind": "task",
+      "chars": 118,
+      "selectionReason": "scheduled: the task"
+    }
+  ],
+  "assembledSha256": "20e6fdf07309c937446fcc9c5954888ae986982ef52c0141372b90592954a776",
+  "measuredInputTokens": 373
+}

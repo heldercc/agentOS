@@ -1,0 +1,13 @@
+{
+  "artifactId": "full-reload--task-camera-plan--artifact",
+  "workOrderId": "full-reload--task-camera-plan",
+  "taskId": "task-camera-plan",
+  "path": "full-reload",
+  "contextManifest": "manifest.json",
+  "producedBy": {
+    "model": "fake",
+    "requestId": null
+  },
+  "sha256": "336d55e66798373f1641e6b774bc64a4936f841e36f52b14ca612d39d87744cf",
+  "createdAt": "2026-07-11T22:08:39.371Z"
+}

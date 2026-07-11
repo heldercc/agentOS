@@ -1,0 +1,13 @@
+{
+  "artifactId": "full-reload--task-continuation--artifact",
+  "workOrderId": "full-reload--task-continuation",
+  "taskId": "task-continuation",
+  "path": "full-reload",
+  "contextManifest": "manifest.json",
+  "producedBy": {
+    "model": "fake",
+    "requestId": null
+  },
+  "sha256": "6e2b3f385d66e39ee59b7bb52b98c9150199cbd2a1bd4a896eb493b672685a1d",
+  "createdAt": "2026-07-11T22:08:39.395Z"
+}

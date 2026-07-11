@@ -1,0 +1,12 @@
+{
+  "workOrderId": "full-reload--task-open-creative",
+  "model": "fake",
+  "requestId": null,
+  "inputTokens": 1697,
+  "outputTokens": 74,
+  "cacheCreationInputTokens": 0,
+  "cacheReadInputTokens": 0,
+  "timestamp": "2026-07-11T21:57:25.205Z",
+  "durationMs": 0,
+  "estimated": true
+}
