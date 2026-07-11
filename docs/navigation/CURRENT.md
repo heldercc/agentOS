@@ -34,7 +34,8 @@ can execute it. Rendering is the last worker on the line, deliberately
 commoditized and swappable.
 
 ## Major Decisions
-- Repository remains private.
+- Repository is public — decided by the Pilot, 2026-07-12; supersedes the
+  Session 001 choice. CLOSED: no Copilot re-raises repo visibility.
 - Architecture before implementation (ADR-0000; Article 6).
 - Navigation is the Pilot/Copilot compass — Copilot-agnostic (ADR-0001).
 - Mentor Expertises replace personas (ADR-0002).
@@ -47,10 +48,6 @@ commoditized and swappable.
   (ADR-0013).
 - Article 9, Certainty Precedes Action — <90% confidence in governing intent
   → stop and interview the Pilot (ADR-0014).
-
-## Pilot Decisions Pending
-- **Repo visibility** — currently PUBLIC, contradicting the Session 001
-  decision. Revert to private, or supersede by ADR + scrub business details.
 
 ## Open Questions — dispositioned at Phase 0 close
 - **Brand** — DEFERRED by the Pilot; "AgentOS" remains the working name.
@@ -83,7 +80,7 @@ The Pilot builds multi-agent with GitHub as the shared drive: `origin/main`
 is the single shared truth for every Copilot (Claude, GPT, future cloud
 agents). Therefore **every commit is pushed immediately** — an unpushed
 commit is invisible state and breaks the model. (Pilot's standing grant,
-2026-07-12.) The repo-visibility pendência above still stands.
+2026-07-12.)
 
 ## Last Updated
 Session 005 (2026-07-11) — Book II opened. Built and committed: the ADR-0012
