@@ -4,7 +4,10 @@
 Build AgentOS — an operating system for reusable human expertise.
 
 ## Current Heading
-Foundation Revision 8 — Book I complete + Book II charter (Chapter VI). Next stop: code.
+Book II open — hypothesis-first. The ADR-0012 vertical slice is built and
+verified; the engineering plan is engineering/OVERVIEW.md. What the
+hypothesis owes now is evidence: the Pilot's real corpus, one real run, and
+the Pilot's blind verdicts.
 
 ## Current State
 Copilot transition complete (founding Copilot → current Copilot); founding
@@ -39,6 +42,11 @@ commoditized and swappable.
 - Constitution supersedes Principles (ADR-0004).
 - Seed Resolver renames InjectSeed (ADR-0005).
 - Effort Probe supersedes Cost Probe (ADR-0006).
+- The Beta Coding question frozen before code (ADR-0012).
+- Manual model port — subscription Claude Codes, no API wallet, dev/test only
+  (ADR-0013).
+- Article 9, Certainty Precedes Action — <90% confidence in governing intent
+  → stop and interview the Pilot (ADR-0014).
 
 ## Pilot Decisions Pending
 - **Repo visibility** — currently PUBLIC, contradicting the Session 001
@@ -60,16 +68,20 @@ commoditized and swappable.
   idea leaving the Incubator.
 
 ## Next Bearing
-First: a Constitution improvement pass (Pilot's instruction — polish the eight
-articles before any code). Pilot also flagged: revisit the structural criteria
-rejected in the SavePoint review when indexing work begins. Then CODE. Phase 1 (Kernel): file-based stores, work orders, audit log, effort
-metering v0, zero domain words in the engine (ADR-0008) — via Claude Code on
-the Pilot's PC. Then Phase 2: the daily Executive Loop with Seed Composer v0
-and Mentor management v0. Roadmap (Chapter V) is the build plan.
+Discharge the Beta (ADR-0012), in order: (1) the Pilot authors the real
+fight-scene corpus (data/ placeholders out); (2) review of the authored data
+against the corpus-shaping risk (engineering/OVERVIEW.md §6); (3) one real
+comparison run through the manual port (dashboard, option 1 in beta.bat);
+(4) the Pilot judges blind; (5) RESULTS.md recorded against the three
+committed exits; (6) the devil's-advocate review with Fable 5 the Pilot asked
+for. Only then: Kernel v0 design ADR (Phase 1). Pilot's earlier flags remain:
+Constitution polish pass; SavePoint structural criteria when indexing begins;
+repo visibility decision still pending.
 
 ## Last Updated
-Session 004 — Book I reconciled and stable (external review integrated;
-ADR-0011). Next session: Book II opens with the vertical experiment — one
-work order, minimal Project State, simple Resolver, one Mentor, one Artifact,
-real metering, full-reload vs. scheduled context. Development operator:
-Claude Code (recorded here, per doctrine).
+Session 005 (2026-07-11) — Book II opened. Built and committed: the ADR-0012
+rig (both context paths, real metering, blind eval, results), the ADR-0013
+manual port + conductor, the local dashboard (run/judge/results in the
+browser), Article 9 (ADR-0014), and the Book II engineering plan
+(engineering/OVERVIEW.md) answering the founding GPT brief (preserved in
+docs/heritage/). Development operator: Claude Code on the Pilot's PC.
