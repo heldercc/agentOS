@@ -1,0 +1,7 @@
+node_modules/
+dist/
+*.log
+
+# runs/ is deliberately NOT ignored — experiment results are evidence and belong in git.
+# eval/mapping.sealed.json is committed too; the anti-moving-goalpost rule (ADR-0012)
+# relies on git history proving verdicts were recorded before the seal was opened.

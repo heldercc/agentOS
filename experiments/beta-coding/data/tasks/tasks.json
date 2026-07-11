@@ -1,0 +1,17 @@
+{
+  "_note": "[PLACEHOLDER — autorar com o Pilot] 2 tasks for the fake-model pipeline. ADR-0012 calls for 5–10 realistic tasks in the measured run. tags must overlap seed/state tags for the scheduled path to select meaningfully.",
+  "tasks": [
+    {
+      "id": "task-timing-chart",
+      "title": "Timing chart for shot 3",
+      "instruction": "Produce a frame-level timing chart for shot 3 (Rin's counter, 5s), applying the project's pacing rhythm. Note where the freeze-frame pause falls.",
+      "tags": ["timing", "pacing", "shots"]
+    },
+    {
+      "id": "task-palette-callout",
+      "title": "Colour callout for the counter moment",
+      "instruction": "Write the colour specification for the shot-3 rim-light moment, consistent with the project's palette judgment and character design.",
+      "tags": ["style", "color", "character"]
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "_note": "Domain vocabulary the engine (src/) must never contain (ADR-0008). The subject of the first cargo — the Render Order for a 15-second fight scene — lives only here in data/. Extend this list as the domain is authored with the Pilot. check:domain enforces it.",
+  "words": [
+    "fight",
+    "anime",
+    "shot",
+    "storyboard",
+    "character",
+    "combat",
+    "choreography",
+    "scene",
+    "render order",
+    "camera",
+    "animation",
+    "keyframe"
+  ]
+}

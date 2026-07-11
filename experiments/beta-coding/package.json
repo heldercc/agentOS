@@ -1,0 +1,29 @@
+{
+  "name": "beta-coding",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Beta Coding vertical experiment — ADR-0012. Can a Context Scheduler reduce context tokens while holding quality, vs a full-reload baseline?",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "check:domain": "tsx src/cli/checkDomain.ts",
+    "validate": "tsx src/cli/validate.ts",
+    "run:baseline": "tsx src/cli/run.ts --path full-reload --model fake",
+    "smoke": "tsx src/cli/smoke.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.68.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true
+  }
+}

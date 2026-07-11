@@ -1,0 +1,19 @@
+{
+  "_note": "[PLACEHOLDER — autorar com o Pilot] Seed metadata. tags are the ONLY signal the scheduled resolver uses; author them deliberately.",
+  "seeds": [
+    {
+      "id": "seed-pacing",
+      "version": "draft",
+      "title": "Pacing: hit-pause-counter rhythm",
+      "tags": ["timing", "pacing", "combat"],
+      "path": "seed-pacing.md"
+    },
+    {
+      "id": "seed-palette",
+      "version": "draft",
+      "title": "Palette: cold blues vs warm rim light",
+      "tags": ["style", "color", "lighting"],
+      "path": "seed-palette.md"
+    }
+  ]
+}

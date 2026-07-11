@@ -1,0 +1,19 @@
+{
+  "_note": "[PLACEHOLDER — autorar com o Pilot] Project State slices — one project's accumulated, governed knowledge.",
+  "slices": [
+    {
+      "id": "state-characters",
+      "version": "draft",
+      "title": "Characters: Kai and Rin, decided traits",
+      "tags": ["character", "design"],
+      "path": "state-characters.md"
+    },
+    {
+      "id": "state-shotlist",
+      "version": "draft",
+      "title": "Shot list: 4 shots, durations locked",
+      "tags": ["shots", "timing", "structure"],
+      "path": "state-shotlist.md"
+    }
+  ]
+}
