@@ -1,65 +1,69 @@
-# Roadmap
+# Chapter V — Roadmap
 
-Phases are sequential in *commitment* but may overlap in *exploration*. A phase is
-complete when its exit criteria are met and recorded in Navigation.
+The destination is fixed (Navigation): the **AgentOS App** — a governance
+cockpit where the Pilot launches objectives, governs per-layer proposals
+daily, creates and improves the workers themselves, and the scheduler reuses
+every decision already made. The engine is product-agnostic (ADR-0008); the
+first cargo is the 15-second fight spec, whose terminal Artifact is a
+**Render Order**.
+
+Phases are sequential in commitment, overlapping in exploration. A phase
+closes when its exit criteria are met and recorded in Navigation.
 
 ## Phase −1 · The Why ✔
+VISION and Constitution stable. *(Closed — Session 001.)*
 
-Establish the reason for AgentOS to exist.
-**Exit:** VISION and the Constitution written and stable. *(Done — Session 001.)*
+## Phase 0 · Foundation ✔
+Vocabulary, conceptual architecture, decision process, Navigation proven
+across sessions, open questions dispositioned. *(Closed — Session 004,
+Revision 7. Deferrals recorded in CURRENT.md.)*
 
-## Phase 0 · Foundation ← current
+## Phase 1 · Kernel (minimum honest engine)
+File-based stores (seeds, Project State, Mentors-as-data, Artifacts), work
+orders as files, audit log, effort metering v0 (measure actuals; estimation
+comes later). Runs via Claude Code on the Pilot's machine — local-first.
+**Exit:** one work order flows end-to-end — authorized, executed, metered,
+audited — with the engine containing zero domain words.
 
-Fix the vocabulary, the conceptual architecture and the decision process before any
-production code.
-**Exit criteria:**
-- All TERMINOLOGY terms defined and used consistently across docs.
-- Conceptual architecture with layer boundaries and invariants (ARCHITECTURE.md).
-- ADR process operating (template + first accepted ADRs).
-- Navigation system proven across ≥ 2 sessions.
-- Open questions in CURRENT.md either answered or explicitly deferred with owner.
+## Phase 2 · Executive Loop (the daily App)
+The governance cycle: open the app → Kernel loads Project State → open
+decisions presented per layer → Pilot evaluates / approves / deletes →
+Mentors work the consequences → tomorrow, new proposals. Seed Composer v0
+(teach in natural language). Mentor management v0 (create / edit / improve /
+retire workers through governance — ADR-0008).
+**Exit:** the Pilot governs a full daily cycle, including editing a Mentor,
+without touching internals or writing formats.
 
-## Phase 1 · Kernel
+## Phase 3 · Scheduler & Reuse
+Context scheduling in earnest (Article 5): approved decisions, seeds and
+state are resolved into working context instead of re-consumed; token spend
+per session measurably drops as the Project State grows. Effort Probe gains
+estimation + calibration (ADR-0006).
+**Exit:** session N+1 costs less than session N for equivalent governance,
+and the audit log proves why.
 
-The governance core: work orders, budget enforcement (Effort Probe), approval gates,
-audit log, versioned stores.
-**Exit:** a Workflow can be authorized, metered, halted and fully audited — even if
-the "work" is trivial.
+## Phase 4 · Production Line 1 — the Render Order
+The fight spec as cargo: layer Mentors (story, characters, shots, style,
+production) propose; the Pilot governs daily; the Render Order accumulates
+with full provenance.
+**Exit:** Render Order v1 — complete enough that a rendering system the
+engine has never met could execute it.
 
-## Phase 2 · Executive UI
+## Phase 5 · The Agnosticism Proof
+A second, unrelated objective (candidate: a fiscal vertical, e.g. FIZ para
+TVDE) runs through the same engine: new Expertises and seeds, **zero Kernel
+changes**.
+**Exit:** the proof holds, or every violation becomes an ADR that removes
+domain leakage from the engine.
 
-The Pilot's cockpit: Executive Mode decision flow, teaching UX for GuruSeeds,
-provenance/review views.
-**Exit:** the Pilot can govern a full Workflow lifecycle without touching internals.
-
-## Phase 3 · Runtime
-
-Real execution: model calls, tool access, sandboxing, retries — all under Kernel
-work orders.
-**Exit:** a non-trivial Workflow produces Artifacts with complete provenance and
-respected budgets.
-
-## Phase 4 · Mentor Engine
-
-Mentor composition from Mentor Expertises; seed relevance for Seed Resolver; Mentor
-versioning.
-**Exit:** two Mentors with different Expertises produce observably different,
-seed-attributable behavior on the same task.
-
-## Phase 5 · GuruSeed System
-
-Full seed lifecycle (draft → active → refined → retired), teaching loop from
-Executive UI, seed performance signals.
-**Exit:** a seed taught in one session measurably changes behavior in later
-sessions, and its effect is visible to the Pilot.
-
-## Phase 6 · Self-improving Architecture
-
-The system proposes its own refinements — new seeds, retirements, workflow
-optimizations — always as *proposals* through Executive Mode (Articles 1 and 2 of the Constitution).
-**Exit:** at least one system-proposed, Pilot-approved improvement with measured
+## Phase 6 · Self-Improvement Under Governance
+The system proposes its own refinements — seed evolution, Mentor
+improvements, workflow optimizations — always as proposals through Executive
+Mode (Articles 1, 2, 4).
+**Exit:** one system-proposed, Pilot-approved improvement with measured
 positive effect.
 
----
-*Revision 4 note: phase names are stable; "Executive UI" (Phase 2) is the
-implementation of Executive Mode — the Kernel's face — not an independent layer.*
+## Rendering (deliberately outside the roadmap)
+Executing a Render Order is a swappable downstream step (ComfyUI/Wan today,
+anything better tomorrow). It gets planned when Render Order v1 exists —
+not before.

@@ -11,7 +11,7 @@ day it compiles. This book exists so that never happens here.
 
 ## Status
 
-**Foundation — Revision 6.**
+**Foundation — Revision 7 (Phase 0 closed — Book I complete).**
 
 This repository is **Book I — Foundation** of a declared four-book arc:
 Foundation, Engineering, Implementation, Evolution. Only Book I exists; the

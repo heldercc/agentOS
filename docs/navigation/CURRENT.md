@@ -4,7 +4,7 @@
 Build AgentOS — an operating system for reusable human expertise.
 
 ## Current Heading
-Foundation Revision 6 — primary objective registered: the AgentOS App.
+Foundation Revision 7 — Phase 0 CLOSED. Next stop: code (Phase 1 Kernel).
 
 ## Current State
 Copilot transition complete (founding Copilot → current Copilot); founding
@@ -40,25 +40,23 @@ commoditized and swappable.
 - Seed Resolver renames InjectSeed (ADR-0005).
 - Effort Probe supersedes Cost Probe (ADR-0006).
 
-## Pilot Decisions Pending
-- **ADR-0007 (Seed Composer)** — approve name and concept, or rename.
-
-## Open Questions
-- **Brand** — "AgentOS" is generic, collision-prone, and (noted irony) the
-  Foundation barely uses the word Agent. Pilot decision.
-- **Seed Resolver determinism** — most load-bearing unproven claim; design ADR
-  owed before Phase 4 (see review, R3).
-- **Seed lifecycle** — design ADR owed before Phase 5.
-- **Deployment model** — local-first vs. server; ADR owed before Phase 1 code.
-- **Marketplace vs. single-Pilot assumption** — must be reconciled before that
-  idea leaves the Incubator (see review, R4).
+## Open Questions — dispositioned at Phase 0 close
+- **Brand** — DEFERRED by the Pilot; "AgentOS" remains the working name.
+  Revisit before anything becomes public.
+- **Seed Resolver determinism** — DEFERRED to a design ADR owed before the
+  scheduler matures (Phase 3).
+- **Seed lifecycle** — DEFERRED to a design ADR owed before Phase 6 seed
+  evolution; founding 7-state sketch is the working draft.
+- **Deployment model** — DECIDED: local-first, file-based, running via Claude
+  Code on the Pilot's machine (Session 004).
+- **Marketplace vs. single-Pilot** — DEFERRED; blocks only the Marketplace
+  idea leaving the Incubator.
 
 ## Next Bearing
-Phase 0 closes (ADR-0007 ratified in session; remaining questions to disposition).
-Phase 1 (Kernel) + Phase 2 (Executive UI) now aim directly at the AgentOS App:
-minimal Kernel (work orders, stores, scheduler, Effort Probe) + the daily
-governance loop, running via Claude Code on the Pilot's PC. Rendering stack
-(ComfyUI/Wan) deferred until the Render Order exists — GPU details parked.
+CODE. Phase 1 (Kernel): file-based stores, work orders, audit log, effort
+metering v0, zero domain words in the engine (ADR-0008) — via Claude Code on
+the Pilot's PC. Then Phase 2: the daily Executive Loop with Seed Composer v0
+and Mentor management v0. Roadmap (Chapter V) is the build plan.
 
 ## Last Updated
-Session 004 (cont.) — Foundation Revision 6.
+Session 004 (close) — Foundation Revision 7. Phase 0 complete.

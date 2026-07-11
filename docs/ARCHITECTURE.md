@@ -1,6 +1,6 @@
 # Chapter IV — Architecture
 
-> Status: conceptual (Foundation Revision 6). This chapter fixes responsibilities
+> Status: conceptual (Foundation Revision 7). This chapter fixes responsibilities
 > and boundaries. Technology choices are deliberately deferred to Phase 1+ ADRs.
 
 ## Why This Shape
@@ -131,6 +131,10 @@ Engineering rules the Constitution implies; any violation is a defect.
   (Article 4).
 - Everything versioned: seeds, context, expertises, artifacts, decisions.
 - The Pilot can halt anything, at any time, and the system remains consistent.
+- No domain knowledge in the engine: the Kernel and App shell are blind to
+  what is being produced; domain lives only in governed data (ADR-0008).
+- Mentors are data, not code: creating, editing, improving or retiring a
+  worker is a governed, versioned, auditable operation (ADR-0008).
 
 ## Deliberately Undecided (deferred to future ADRs)
 
