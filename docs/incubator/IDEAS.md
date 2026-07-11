@@ -73,6 +73,33 @@ Seeds with provenance `taught by: Maria Rolanda`. Candidate for the first
 taught-Expertise once the App's daily loop exists; family heritage
 preservation as the most honest test of the founding thesis.
 
+## Researched Seeds — the fertile first garden — incubating
+
+The Pilot's metaphor (2026-07-11): a project's first garden grows faster on
+fertile ground. Before a project starts, a **Research Mentor** surveys the
+state of the art of each craft dimension the project will touch (for the
+first cargo: writing, costume, makeup, and the existing layers — story,
+characters, shots, style, production) and proposes **candidate seeds** that
+form the project's base layer.
+
+Constitutional fit — clean, with three conditions already in doctrine:
+1. **One gate (O5):** the agent *proposes*, never plants. Candidates arrive
+   with evidence; the Pilot curates. The proven filter is the curation
+   doctrine — só as pingas douradas (0.6% acceptance is a feature).
+2. **Provenance by reference (Article 3):** every researched seed carries its
+   sources. Origin taxonomy stays small: `imported`, sub-provenance
+   `researched by <Mentor> from <sources>` — the seed lifecycle ADR decides
+   the exact encoding.
+3. **Separation of judgment:** researched seeds are commodity knowledge — the
+   project's *soil*, not the Pilot's differentiated judgment (GuruSeeds).
+   They must never masquerade as the owner's taste; origin makes the
+   difference inspectable.
+
+Timing: natural fit for Phase 4 — the layer Mentors could be *born* with a
+researched base layer. Needs the Seed Composer intake (Phase 2) and the seed
+lifecycle ADR first. Complements, not replaces, taught (O3) and learned (O4):
+three acquisition pipelines, one gate.
+
 ## Multimodal Expertise Interview Pipeline — incubating (unifier)
 
 One pipeline, many faces: person + environment + camera/audio capture +
