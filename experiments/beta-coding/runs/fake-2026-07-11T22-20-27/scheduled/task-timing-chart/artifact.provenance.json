@@ -1,0 +1,13 @@
+{
+  "artifactId": "scheduled--task-timing-chart--artifact",
+  "workOrderId": "scheduled--task-timing-chart",
+  "taskId": "task-timing-chart",
+  "path": "scheduled",
+  "contextManifest": "manifest.json",
+  "producedBy": {
+    "model": "fake",
+    "requestId": null
+  },
+  "sha256": "abeefe8be29a42a756c8f0300920652066468e959f2c49360d85607b7018101d",
+  "createdAt": "2026-07-11T22:20:31.614Z"
+}

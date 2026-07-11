@@ -1,0 +1,13 @@
+{
+  "artifactId": "scheduled--task-sound-design--artifact",
+  "workOrderId": "scheduled--task-sound-design",
+  "taskId": "task-sound-design",
+  "path": "scheduled",
+  "contextManifest": "manifest.json",
+  "producedBy": {
+    "model": "fake",
+    "requestId": null
+  },
+  "sha256": "d1c3153cdf0e42c40da7bbe9ae6e515cea074464ff49cc06bc6f8d304310b8fd",
+  "createdAt": "2026-07-11T22:20:31.638Z"
+}

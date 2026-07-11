@@ -1,0 +1,30 @@
+{
+  "runId": "fake-2026-07-11T22-20-27",
+  "rngSeed": 1,
+  "mapping": {
+    "task-timing-chart": {
+      "A": "full-reload",
+      "B": "scheduled"
+    },
+    "task-palette-callout": {
+      "A": "scheduled",
+      "B": "full-reload"
+    },
+    "task-camera-plan": {
+      "A": "full-reload",
+      "B": "scheduled"
+    },
+    "task-sound-design": {
+      "A": "full-reload",
+      "B": "scheduled"
+    },
+    "task-continuation": {
+      "A": "full-reload",
+      "B": "scheduled"
+    },
+    "task-open-creative": {
+      "A": "scheduled",
+      "B": "full-reload"
+    }
+  }
+}

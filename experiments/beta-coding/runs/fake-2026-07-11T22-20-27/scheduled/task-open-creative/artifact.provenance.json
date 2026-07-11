@@ -1,0 +1,13 @@
+{
+  "artifactId": "scheduled--task-open-creative--artifact",
+  "workOrderId": "scheduled--task-open-creative",
+  "taskId": "task-open-creative",
+  "path": "scheduled",
+  "contextManifest": "manifest.json",
+  "producedBy": {
+    "model": "fake",
+    "requestId": null
+  },
+  "sha256": "adf3e8a5f32e1843c8b0f92887bffdabe86e50c494716dde5d281c9113e99916",
+  "createdAt": "2026-07-11T22:20:31.655Z"
+}

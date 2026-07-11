@@ -1,0 +1,13 @@
+{
+  "artifactId": "full-reload--task-open-creative--artifact",
+  "workOrderId": "full-reload--task-open-creative",
+  "taskId": "task-open-creative",
+  "path": "full-reload",
+  "contextManifest": "manifest.json",
+  "producedBy": {
+    "model": "fake",
+    "requestId": null
+  },
+  "sha256": "891fb41b8a6a139d105a812754af56791258cfd30f91c36db23a05a7ae626298",
+  "createdAt": "2026-07-11T22:20:29.921Z"
+}

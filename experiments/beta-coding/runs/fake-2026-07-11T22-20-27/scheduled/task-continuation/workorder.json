@@ -1,0 +1,10 @@
+{
+  "id": "scheduled--task-continuation",
+  "runId": "fake-2026-07-11T22-20-27",
+  "taskId": "task-continuation",
+  "path": "scheduled",
+  "model": "fake",
+  "maxTokens": 8000,
+  "createdAt": "2026-07-11T22:20:31.640Z",
+  "status": "executed"
+}

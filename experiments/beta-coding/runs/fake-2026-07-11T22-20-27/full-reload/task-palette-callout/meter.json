@@ -1,0 +1,12 @@
+{
+  "workOrderId": "full-reload--task-palette-callout",
+  "model": "fake",
+  "requestId": null,
+  "inputTokens": 1706,
+  "outputTokens": 74,
+  "cacheCreationInputTokens": 0,
+  "cacheReadInputTokens": 0,
+  "timestamp": "2026-07-11T22:20:29.854Z",
+  "durationMs": 0,
+  "estimated": true
+}

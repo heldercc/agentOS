@@ -1,0 +1,10 @@
+{
+  "id": "scheduled--task-open-creative",
+  "runId": "fake-2026-07-11T22-20-27",
+  "taskId": "task-open-creative",
+  "path": "scheduled",
+  "model": "fake",
+  "maxTokens": 8000,
+  "createdAt": "2026-07-11T22:20:31.649Z",
+  "status": "executed"
+}

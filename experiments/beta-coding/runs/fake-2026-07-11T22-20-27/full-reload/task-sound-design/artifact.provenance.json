@@ -1,0 +1,13 @@
+{
+  "artifactId": "full-reload--task-sound-design--artifact",
+  "workOrderId": "full-reload--task-sound-design",
+  "taskId": "task-sound-design",
+  "path": "full-reload",
+  "contextManifest": "manifest.json",
+  "producedBy": {
+    "model": "fake",
+    "requestId": null
+  },
+  "sha256": "28138ff84e2b7029ae94aeb5d4dde4ab1de9ef51b5a1d5080761c12ff0aeb326",
+  "createdAt": "2026-07-11T22:20:29.892Z"
+}

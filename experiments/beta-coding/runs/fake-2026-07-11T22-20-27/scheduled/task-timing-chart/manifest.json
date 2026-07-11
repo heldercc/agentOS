@@ -1,0 +1,96 @@
+{
+  "workOrderId": "scheduled--task-timing-chart",
+  "path": "scheduled",
+  "elements": [
+    {
+      "ref": {
+        "id": "mentor",
+        "version": "03ecfe1",
+        "path": "experiments/beta-coding/data/project/mentor.md",
+        "sha256": "d4fc254026103be4deaa07a4ca8e6881c099f5ac61f327859cf870fb2fb47b98"
+      },
+      "kind": "mentor",
+      "chars": 642,
+      "selectionReason": "scheduled: the worker (always included)"
+    },
+    {
+      "ref": {
+        "id": "seed-camera",
+        "version": "d382112",
+        "path": "experiments/beta-coding/data/project/seeds/seed-camera.md",
+        "sha256": "7f6bcd73c13554a8f4cc19c0c86a538c2bef74aa31d6bdbbaf88a8ff33607dc0"
+      },
+      "kind": "seed",
+      "chars": 364,
+      "selectionReason": "scheduled: tag-match [shots]"
+    },
+    {
+      "ref": {
+        "id": "seed-doctrine",
+        "version": "d382112",
+        "path": "experiments/beta-coding/data/project/seeds/seed-doctrine.md",
+        "sha256": "9c59d851210265c91a1728966e9e2c2b190e119da9197302e2c022fba747683f"
+      },
+      "kind": "seed",
+      "chars": 368,
+      "selectionReason": "scheduled: core (always included)"
+    },
+    {
+      "ref": {
+        "id": "seed-impact",
+        "version": "d382112",
+        "path": "experiments/beta-coding/data/project/seeds/seed-impact.md",
+        "sha256": "2027720c9afa98acbb8e8e00007093b846ae0ccd2c3abfd434053065268d837e"
+      },
+      "kind": "seed",
+      "chars": 336,
+      "selectionReason": "scheduled: tag-match [timing]"
+    },
+    {
+      "ref": {
+        "id": "seed-pacing",
+        "version": "03ecfe1",
+        "path": "experiments/beta-coding/data/project/seeds/seed-pacing.md",
+        "sha256": "9e932956ed4e9e0bd0a5510c0290688f4219419d92e382145ade49cfe1d6fcf3"
+      },
+      "kind": "seed",
+      "chars": 335,
+      "selectionReason": "scheduled: tag-match [pacing, timing]"
+    },
+    {
+      "ref": {
+        "id": "seed-sound",
+        "version": "d382112",
+        "path": "experiments/beta-coding/data/project/seeds/seed-sound.md",
+        "sha256": "96079455bbb5b53dfd598446368b51ef9de478fc26e0470e1e523078458d963a"
+      },
+      "kind": "seed",
+      "chars": 314,
+      "selectionReason": "scheduled: tag-match [pacing]"
+    },
+    {
+      "ref": {
+        "id": "state-shotlist",
+        "version": "03ecfe1",
+        "path": "experiments/beta-coding/data/project/state/state-shotlist.md",
+        "sha256": "8fed4bd9715d838849111d4097f455df8f9d2d05ab2911d5955edbf197684e47"
+      },
+      "kind": "state",
+      "chars": 353,
+      "selectionReason": "scheduled: tag-match [shots, timing]"
+    },
+    {
+      "ref": {
+        "id": "task-timing-chart",
+        "version": "task",
+        "path": "data/tasks/task-timing-chart",
+        "sha256": ""
+      },
+      "kind": "task",
+      "chars": 168,
+      "selectionReason": "scheduled: the task"
+    }
+  ],
+  "assembledSha256": "00684591fef51166a711a23ddb2f2105366ecb31b61a93a969c1e211cb101408",
+  "measuredInputTokens": 905
+}
