@@ -4,16 +4,18 @@
 Build AgentOS — an operating system for reusable human expertise.
 
 ## Current Heading
-Foundation Revision 4 — the Foundation Book.
+Foundation Revision 5 — founding sessions reconciled; closing Phase 0.
 
 ## Current State
-Foundation restructured as a book (why before how). Constitution (7 articles)
-supersedes Principles; context-scheduling elevated to Article 5 and ADR-0003.
-Architecture consolidated into three planes + Navigation outside the runtime;
-the Revision 3 linear chain reviewed and rejected on record. Effort Probe
-supersedes Cost Probe with a constitutive calibration loop. Seed Resolver
-renames InjectSeed. VISION absorbed MANIFESTO. Full review in
-docs/reviews/2026-07-REVIEW-OF-REVISION-3.md.
+Copilot transition complete (founding Copilot → current Copilot); founding
+knowledge export received, preserved in docs/heritage/ and reconciled
+(docs/reviews/2026-07-RECONCILIATION-FOUNDING-SESSIONS.md). Teaching mechanism
+restored as Seed Composer (ADR-0007, Proposed). Seed lifecycle upgraded to the
+founding 7-state sketch. Repository named Book I of a four-book arc.
+Strategic objectives fixed by the Pilot: (2) AgentOS as internal factory
+producing vertical products; (3) expertise/case-study itself as a sellable
+asset. First production line chosen: an original anime-style action short
+(original characters and names — homage in style only).
 
 ## Major Decisions
 - Repository remains private.
@@ -24,6 +26,9 @@ docs/reviews/2026-07-REVIEW-OF-REVISION-3.md.
 - Constitution supersedes Principles (ADR-0004).
 - Seed Resolver renames InjectSeed (ADR-0005).
 - Effort Probe supersedes Cost Probe (ADR-0006).
+
+## Pilot Decisions Pending
+- **ADR-0007 (Seed Composer)** — approve name and concept, or rename.
 
 ## Open Questions
 - **Brand** — "AgentOS" is generic, collision-prone, and (noted irony) the
@@ -36,9 +41,10 @@ docs/reviews/2026-07-REVIEW-OF-REVISION-3.md.
   idea leaves the Incubator (see review, R4).
 
 ## Next Bearing
-Close Phase 0: resolve or formally defer the open questions, then declare the
-Foundation complete and open Phase 1 (Kernel) with the deployment-model and
-Effort-Probe design ADRs.
+Pilot ratifies ADR-0007; remaining open questions resolved or formally
+deferred; Phase 0 declared complete. Then Phase 1 (Kernel) opens with the
+deployment-model and Effort-Probe design ADRs, aimed at the first production
+line (anime-style short) and the factory objectives (2) and (3).
 
 ## Last Updated
-Session 003 — Foundation Revision 4.
+Session 004 — Foundation Revision 5.

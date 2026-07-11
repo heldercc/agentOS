@@ -27,14 +27,23 @@ New concepts enter here first.
 ## Expertise
 
 - **GuruSeed** — the atomic unit of captured expertise: an explicit, versioned
-  heuristic ("when X, prefer Y, because Z"). Written and owned by the Pilot;
-  reviewable, testable, retirable.
+  heuristic ("when X, prefer Y, because Z"). Owned by the Pilot; reviewable,
+  testable, retirable. Founding anatomy sketch (pre-formalization): intent,
+  domain, the human knowledge itself, application context, explanation,
+  refinement history. Small enough to state a heuristic; rich enough to explain
+  a decision.
+- **Seed Composer** *(Proposed — ADR-0007)* — the teaching mechanism: the
+  Pilot expresses expertise in natural language; the system interprets,
+  structures, asks confirmation, saves and versions. The Pilot never writes
+  formats. Composer puts seeds in; the Resolver takes them out.
 - **Seed Resolver** — the mechanism that, for a given task, resolves which
   GuruSeeds belong in a Mentor's context. Resolution is deterministic and logged:
   for any action, it is always knowable which seeds were active and why.
   (Renames "InjectSeed" — see ADR-0005.)
-- **Seed lifecycle** — draft → active → refined (new version) → retired.
-  Sketch only; full design owes an ADR before Phase 5.
+- **Seed lifecycle** — founding sketch: idea → draft → candidate (on
+  probation, applied but watched) → approved → core (constitutional to a
+  Mentor; maximally protected by Article 4) → deprecated → archived. Sketch
+  only; full design owes an ADR before Phase 5.
 
 ## Context & State
 

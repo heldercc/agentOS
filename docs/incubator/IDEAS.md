@@ -34,3 +34,10 @@ An economic layer over the Effort Probe: quality gain per unit of effort,
 portfolio-level "is this workflow worth automating?" analysis. Depends on a
 calibrated probe (ADR-0006) producing enough estimate/actual pairs. Research
 until then; the word "ROI" stays out of core documents until the probe earns it.
+
+## Executive Health Check — incubating
+
+Founding-session idea: Executive Mode surfaces project health indicators —
+budget burn vs. estimate, seed hit-rate, stale open decisions, drift signals.
+A dashboard for governing, not working. Natural Phase 2+ extension; recovered
+via the founding knowledge export (Session 004).

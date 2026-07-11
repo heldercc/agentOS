@@ -1,4 +1,4 @@
-# AgentOS
+# AgentOS — Book I: Foundation
 
 > An Operating System for Reusable Human Expertise.
 
@@ -11,7 +11,11 @@ day it compiles. This book exists so that never happens here.
 
 ## Status
 
-**Foundation — Revision 4.**
+**Foundation — Revision 5.**
+
+This repository is **Book I — Foundation** of a declared four-book arc:
+Foundation, Engineering, Implementation, Evolution. Only Book I exists; the
+others are named so the shelf is honest about what is missing.
 
 ## The Book
 
@@ -28,6 +32,7 @@ Read in order. Each chapter explains *why* before *how*.
 | — | `docs/navigation/` | Where is the project right now? |
 | — | `docs/incubator/` | What is alive but not committed? |
 | — | `docs/reviews/` | What did each architectural review conclude? |
+| — | `docs/heritage/` | What did the founding sessions actually say? |
 
 ## Governance
 
