@@ -1,0 +1,11 @@
+# OS junk
+.DS_Store
+Thumbs.db
+# Editors
+.vscode/
+.idea/
+# Future build artifacts (Book II)
+node_modules/
+__pycache__/
+*.pyc
+.env
