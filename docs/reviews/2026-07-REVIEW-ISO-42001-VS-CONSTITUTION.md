@@ -65,3 +65,19 @@ architecture makes it unusually cheap to claim. That is a Phase 5+ concern;
 noted here so it is not rediscovered.
 
 Decision remains the Pilot's; nothing changes without an ADR.
+
+## Gate outcome (same session)
+
+The Pilot delegated the distillation decision ("diz-me tu"). Delegated
+verdict, recorded here per Article 1 (autonomy: explicit, scoped, revocable):
+
+- **Admitted — `expertise/imported/risk-beside-cost`** (origin imported,
+  source ISO/IEC 42001): approval answers *what will this cost* AND *what
+  could this break*. Concrete near-term use: the Effort Probe ADR.
+- **Admitted — `expertise/taught/adversarial-review`** (origin **taught** —
+  the practice is the Pilot's; ISO merely corroborates): nothing important is
+  accepted on its first reading; the attack is recorded.
+- **Rejected as seed — "unread logs are decoration."** True, but it is a
+  design requirement for the Executive Loop (Phase 2), not portable judgment;
+  it is already recorded above and duplicating doctrine as a seed is the same
+  self-vandalism the skill-import review refused. Acceptance rate: 2 of 3.
