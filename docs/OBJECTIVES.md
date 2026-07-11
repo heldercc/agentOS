@@ -55,12 +55,16 @@ taste, whether implemented directly or learned-and-validated.
 **Proven when:** month N's factory is measurably more capable than month 1's,
 and the difference is enumerable as seeds and Mentor versions — not vibes.
 
-## O7 — The Scheduler Pays for Itself
+## O7 — The Scheduler Beats Full Reload
 
 Approved decisions, seeds and state are *resolved* into context, never
-re-consumed (Article 5).
-**Proven when:** session N+1 costs fewer tokens than session N for equivalent
-governance, and the audit log shows the reuse.
+re-consumed (Article 5). The honest baseline is not yesterday's session — a
+harder project may legitimately need more context — but the **full-reload
+strategy** for the same task.
+**Proven when:** for equivalent task and quality, scheduled context consumes
+measurably less than full reload — tracked as tokens avoided vs. baseline,
+reuse ratio, and cost per approved decision — with quality constant or
+better, and the reused context explicit in the audit log.
 
 ## O8 — First Cargo: the Render Order
 

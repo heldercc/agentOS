@@ -37,12 +37,13 @@ produced them. An hour spent teaching the system is an hour invested, not spent.
 
 ## Thesis
 
-- Model capability is no longer the bottleneck. Capturing, scheduling and
-  governing expertise is.
+- Today, capturing, scheduling and governing expertise is a tighter
+  bottleneck than raw model capability — and the gap widens as models improve.
 - The human governs. The system proposes, explains and executes within granted
   scope; the Pilot decides.
-- Expertise captured once applies everywhere it is relevant, forever, at near-zero
-  marginal cost.
+- Expertise captured once applies wherever it is relevant, for as long as it
+  stays valid, at low marginal cost — and its validity is itself governed
+  (reviewed, refined, retired).
 - Architecture precedes implementation, because a wrong abstraction grows more
   expensive with every line built upon it.
 

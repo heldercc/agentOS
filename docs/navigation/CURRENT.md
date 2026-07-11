@@ -68,4 +68,8 @@ the Pilot's PC. Then Phase 2: the daily Executive Loop with Seed Composer v0
 and Mentor management v0. Roadmap (Chapter V) is the build plan.
 
 ## Last Updated
-Session 004 — ADR-0010 (stack) ratified. Phase 1 unblocked: next session writes kernel/.
+Session 004 — Book I reconciled and stable (external review integrated;
+ADR-0011). Next session: Book II opens with the vertical experiment — one
+work order, minimal Project State, simple Resolver, one Mentor, one Artifact,
+real metering, full-reload vs. scheduled context. Development operator:
+Claude Code (recorded here, per doctrine).

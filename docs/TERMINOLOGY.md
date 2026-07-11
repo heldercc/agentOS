@@ -45,9 +45,12 @@ New concepts enter here first.
   success) or `imported` (external expertise, e.g. open-source skills,
   admitted individually). Three origins, one gate: the Pilot validates all.
 - **Seed Resolver** — the mechanism that, for a given task, resolves which
-  GuruSeeds belong in a Mentor's context. Resolution is deterministic and logged:
-  for any action, it is always knowable which seeds were active and why.
-  (Renames "InjectSeed" — see ADR-0005.)
+  GuruSeeds belong in a Mentor's context. The durable requirement is
+  **attributable and auditable selection**: for any action, it is always
+  knowable which seeds were active and why. Full determinism is an
+  aspiration, not a promise; deterministic *replay* via the logged selection
+  is the guaranteed floor. (Renames "InjectSeed" — ADR-0005; requirement
+  refined at reconciliation, Session 004.)
 - **Seed lifecycle** — founding sketch: idea → draft → candidate (on
   probation, applied but watched) → approved → core (constitutional to a
   Mentor; maximally protected by Article 4) → deprecated → archived. Sketch
@@ -59,13 +62,16 @@ New concepts enter here first.
   Project State + Memory + task input. Always explicit, always enumerated in the
   audit log. Context is a scheduled resource (Article 5), not something the Pilot
   repeats.
-- **Project State** — the versioned snapshot of everything the system knows about
-  one ongoing project: goals, constraints, decisions, progress. Scoped to a
-  project; ends when the project ends.
+- **Project State** — the versioned, **smallest sufficient description** of a
+  project's present: goals, constraints, open decisions, progress. Not "everything
+  the system knows" — an archive is not a state (Article 8 applied to state
+  itself). Scoped to a project; ends when the project ends.
 - **Memory** — knowledge that outlives projects: durable facts and outcomes.
   Distinct from Project State (per-project) and from seeds (judgment, not facts).
 - **Artifact** — any output of a Workflow: document, code, analysis, decision.
-  Every Artifact carries provenance: the seed and context versions that produced it.
+  Every Artifact carries provenance **by reference** — the IDs and versions of
+  the seeds and context that produced it, not copies. Provenance must never
+  cost more than the work it describes.
 - **Render Order** — the terminal Artifact of a creative production line: a
   complete, renderer-agnostic specification (story, characters, shots, style,
   production detail), accumulated through governed refinement across sessions.

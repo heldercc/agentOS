@@ -35,10 +35,12 @@ The system is responsible for resolving and placing relevant knowledge into
 working context. The human is never the paging mechanism. Asking the Pilot to
 re-explain what the system already stores is an architectural failure.
 
-## Article 6 — Architecture Before Implementation
+## Article 6 — Architecture Precedes Commitment
 
-Concepts, boundaries and vocabulary are settled before code exists. Prototypes
-may explore; only architecture may decide.
+Prototypes explore; evidence may revise architecture — always explicitly,
+through an ADR, never by fait accompli. Code never decides architecture
+silently. (Amended by ADR-0011; original wording: "settled before code
+exists".)
 
 ## Article 7 — Transparency Before Automation
 

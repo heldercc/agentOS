@@ -41,7 +41,7 @@ relate. The separation below keeps every concept from the chain, sorted by kind.
 ├───────────────────────────────────────────────────────────┤
 │ STATE PLANE — the stores                                   │
 │ GuruSeeds · Project State · Memory · Artifacts.            │
-│ Versioned, inspectable, append-mostly.                     │
+│ All inspectable; versioning & retention policy per store.  │
 └───────────────────────────────────────────────────────────┘
 
   NAVIGATION — outside the runtime entirely.
@@ -77,9 +77,12 @@ order, cannot reach a store directly, and cannot alter a seed (Article 4).
 Four stores, four lifetimes: **GuruSeeds** (owner's judgment — outlives
 everything), **Memory** (durable facts — outlives projects), **Project State**
 (one project's knowledge — lives with the project), **Artifacts** (outputs —
-immutable once produced). *Boundary:* append-mostly; destructive edits are
-exceptional and audited. Versioning is a property of the store, not a discipline
-asked of its users.
+immutable once produced). *Boundary:* policies are **per store**, not
+plane-wide — seeds are strictly versioned and never silently mutated
+(Article 4); Artifacts are immutable once produced; Project State is a living
+document with versioned checkpoints; Memory is append-mostly with audited
+retirement. Versioning is a property of each store, not a discipline asked of
+its users.
 
 ## Canonical Flow (one Workflow)
 
@@ -124,8 +127,9 @@ Two disciplines keep this honest:
 Engineering rules the Constitution implies; any violation is a defect.
 
 - No execution outside a Kernel work order.
-- No context element that is not enumerated in the audit log.
-- No Artifact without provenance (seed + context versions that produced it).
+- No context element that is not enumerated, by reference, in the audit log.
+- No Artifact without provenance by reference (IDs/versions of seeds and
+  context that produced it — never copies).
 - No component other than the Kernel spends effort budget.
 - No mutation of seeds, expertises or workflows without an approval record
   (Article 4).

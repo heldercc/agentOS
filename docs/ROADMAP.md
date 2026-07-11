@@ -23,7 +23,8 @@ Revision 7. Deferrals recorded in CURRENT.md.)*
 ## Phase 1 · Kernel (minimum honest engine)
 File-based stores (seeds, Project State, Mentors-as-data, Artifacts), work
 orders as files, audit log, effort metering v0 (measure actuals; estimation
-comes later). Runs via Claude Code on the Pilot's machine — local-first.
+comes later). Runs locally through a replaceable development operator (the
+initial operator is recorded in Navigation, not here).
 **Exit:** one work order flows end-to-end — authorized, executed, metered,
 audited — with the engine containing zero domain words.
 
