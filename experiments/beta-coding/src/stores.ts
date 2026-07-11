@@ -19,7 +19,9 @@ export function sha256(text: string): string {
 }
 
 export function readText(path: string): string {
-  return readFileSync(path, "utf8");
+  // Strip a leading UTF-8 BOM — editors (and PowerShell) may add one to files
+  // the Pilot hand-edits, e.g. verdicts.json; a BOM breaks JSON.parse.
+  return readFileSync(path, "utf8").replace(/^﻿/, "");
 }
 
 export function readJson<T>(path: string): T {

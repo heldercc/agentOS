@@ -1,19 +1,11 @@
 {
-  "_note": "[PLACEHOLDER — autorar com o Pilot] Seed metadata. tags are the ONLY signal the scheduled resolver uses; author them deliberately.",
+  "_note": "[PLACEHOLDER — autorar com o Pilot] Seed metadata. tags are the ONLY signal the scheduled resolver uses; author them deliberately. A seed tagged 'core' is always included by path B.",
   "seeds": [
-    {
-      "id": "seed-pacing",
-      "version": "draft",
-      "title": "Pacing: hit-pause-counter rhythm",
-      "tags": ["timing", "pacing", "combat"],
-      "path": "seed-pacing.md"
-    },
-    {
-      "id": "seed-palette",
-      "version": "draft",
-      "title": "Palette: cold blues vs warm rim light",
-      "tags": ["style", "color", "lighting"],
-      "path": "seed-palette.md"
-    }
+    { "id": "seed-pacing",     "version": "draft", "title": "Pacing: hit-pause-counter rhythm",        "tags": ["timing", "pacing", "combat"],        "path": "seed-pacing.md" },
+    { "id": "seed-palette",    "version": "draft", "title": "Palette: cold blues vs warm rim light",     "tags": ["style", "color", "lighting"],        "path": "seed-palette.md" },
+    { "id": "seed-impact",     "version": "draft", "title": "Impact frames: smear then hold",            "tags": ["timing", "combat", "animation"],     "path": "seed-impact.md" },
+    { "id": "seed-camera",     "version": "draft", "title": "Camera: low angles for the aggressor",      "tags": ["camera", "shots", "composition"],    "path": "seed-camera.md" },
+    { "id": "seed-sound",      "version": "draft", "title": "Sound: silence sells the biggest hit",      "tags": ["audio", "pacing"],                   "path": "seed-sound.md" },
+    { "id": "seed-doctrine",   "version": "draft", "title": "Doctrine: never invent undecided facts",    "tags": ["core"],                              "path": "seed-doctrine.md" }
   ]
 }

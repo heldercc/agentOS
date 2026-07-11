@@ -13,6 +13,10 @@
     "check:domain": "tsx src/cli/checkDomain.ts",
     "validate": "tsx src/cli/validate.ts",
     "run:baseline": "tsx src/cli/run.ts --path full-reload --model fake",
+    "run:scheduled": "tsx src/cli/run.ts --path scheduled --model fake",
+    "measure": "tsx src/cli/measure.ts",
+    "blind": "tsx src/cli/blind.ts",
+    "results": "tsx src/cli/results.ts",
     "smoke": "tsx src/cli/smoke.ts"
   },
   "dependencies": {

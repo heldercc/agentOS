@@ -9,6 +9,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { assembleFullReload } from "../assemble/fullReload.js";
+import { assembleScheduled } from "../assemble/scheduled.js";
 import { verifyManifestCompleteness } from "../manifest.js";
 import { makeMeterRecord } from "../meter.js";
 import { resolveModel } from "../model.js";
@@ -77,11 +78,8 @@ async function main(): Promise<void> {
     }
   }
 
-  if (args.path === "scheduled") {
-    throw new Error(
-      "scheduled path not implemented in this slice — build assemble/scheduled.ts first",
-    );
-  }
+  const assemble =
+    args.path === "scheduled" ? assembleScheduled : assembleFullReload;
 
   console.log(`run ${args.runId} · path ${args.path} · model ${model}`);
   console.log(`tasks: ${project.tasks.length}\n`);
@@ -101,7 +99,7 @@ async function main(): Promise<void> {
       status: "created",
     };
 
-    const { system, prompt, manifest } = assembleFullReload(project, task, woId);
+    const { system, prompt, manifest } = assemble(project, task, woId);
     if (!verifyManifestCompleteness(manifest, prompt)) {
       throw new Error(`manifest completeness check failed for ${woId}`);
     }

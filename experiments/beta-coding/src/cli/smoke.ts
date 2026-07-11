@@ -12,6 +12,7 @@ import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { assembleFullReload } from "../assemble/fullReload.js";
+import { assembleScheduled } from "../assemble/scheduled.js";
 import { verifyManifestCompleteness } from "../manifest.js";
 import { makeMeterRecord } from "../meter.js";
 import { loadProject } from "../project.js";
@@ -50,11 +51,19 @@ function main(): void {
   check("manifest completeness (hash == assembled prompt)",
     verifyManifestCompleteness(a.manifest, a.prompt));
 
-  // 2. determinism
+  // 2. determinism (both paths)
   const b = assembleFullReload(project, task, "wo-smoke");
-  check("assembly determinism (identical prompt bytes)", a.prompt === b.prompt);
-  check("assembly determinism (identical manifest hash)",
+  check("full-reload determinism (identical prompt bytes)", a.prompt === b.prompt);
+  check("full-reload determinism (identical manifest hash)",
     a.manifest.assembledSha256 === b.manifest.assembledSha256);
+
+  const s1 = assembleScheduled(project, task, "wo-smoke");
+  const s2 = assembleScheduled(project, task, "wo-smoke");
+  check("scheduled completeness (hash == assembled prompt)",
+    verifyManifestCompleteness(s1.manifest, s1.prompt));
+  check("scheduled determinism (identical prompt bytes)", s1.prompt === s2.prompt);
+  check("scheduled selects no more than full-reload",
+    s1.manifest.elements.length <= a.manifest.elements.length);
 
   // 3. write-once
   const dir = mkdtempSync(join(tmpdir(), "beta-smoke-"));

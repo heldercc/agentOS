@@ -1,19 +1,11 @@
 {
   "_note": "[PLACEHOLDER — autorar com o Pilot] Project State slices — one project's accumulated, governed knowledge.",
   "slices": [
-    {
-      "id": "state-characters",
-      "version": "draft",
-      "title": "Characters: Kai and Rin, decided traits",
-      "tags": ["character", "design"],
-      "path": "state-characters.md"
-    },
-    {
-      "id": "state-shotlist",
-      "version": "draft",
-      "title": "Shot list: 4 shots, durations locked",
-      "tags": ["shots", "timing", "structure"],
-      "path": "state-shotlist.md"
-    }
+    { "id": "state-characters", "version": "draft", "title": "Characters: Kai and Rin, decided traits", "tags": ["character", "design"],            "path": "state-characters.md" },
+    { "id": "state-shotlist",   "version": "draft", "title": "Shot list: 4 shots, durations locked",    "tags": ["shots", "timing", "structure"],   "path": "state-shotlist.md" },
+    { "id": "state-arena",      "version": "draft", "title": "Arena: cold empty hall, one light source", "tags": ["setting", "lighting", "color"],   "path": "state-arena.md" },
+    { "id": "state-audio",      "version": "draft", "title": "Audio bed: low drone, no music",           "tags": ["audio", "structure"],             "path": "state-audio.md" },
+    { "id": "state-style",      "version": "draft", "title": "Style: hand-drawn homage, 2s-on-3s",        "tags": ["style", "animation"],             "path": "state-style.md" },
+    { "id": "state-open",       "version": "draft", "title": "Open questions: winner, prior history",     "tags": ["character", "structure"],         "path": "state-open.md" }
   ]
 }

@@ -22,9 +22,11 @@ It is the smallest honest rig that can make the question falsifiable.
 
 - **Path A — full reload** (`src/assemble/fullReload.ts`): dump the entire project
   corpus into context on every task. The honest baseline.
-- **Path B — scheduled** (`src/assemble/scheduled.ts`, *next slice*): a simple
-  tag-matching resolver selects only relevant seeds/state. What it saves is measured
-  against A.
+- **Path B — scheduled** (`src/assemble/scheduled.ts`): a deliberately simple
+  resolver — the Mentor plus any seed/state tagged `core` or whose tags intersect
+  the task's tags. Exact lowercase matching, no embeddings, no scoring. What it
+  saves is measured against A. If a beta this crude already beats full reload,
+  the thesis has legs.
 
 ## Honesty guarantees (enforced in code)
 
@@ -55,14 +57,29 @@ npm run typecheck        # strict TypeScript, no emit
 npm run check:domain     # engine contains no domain vocabulary
 npm run validate         # data corpus is well-formed
 npm run smoke            # invariants: completeness, determinism, write-once, meter honesty
-npm run run:baseline     # full-reload path on the FAKE model (zero cost)
+npm run measure          # FREE token comparison (chars/4 estimate on fake; count_tokens on a real model)
+
+# One comparison run (fake model, zero cost). Baseline first is enforced in code.
+npx tsx src/cli/run.ts --path full-reload --model fake --run demo
+npx tsx src/cli/run.ts --path scheduled  --model fake --run demo
+npx tsx src/cli/blind.ts --run demo      # blind sheet + sealed A/B map
+#   → fill runs/demo/eval/verdicts.json, commit it, THEN open the seal
+npx tsx src/cli/results.ts --run demo    # RESULTS.md: reduction + verdict tally
 ```
 
-The real run (Anthropic API, `ANTHROPIC_API_KEY` in the environment — never in a
-file) comes in a later slice, once the domain data is authored with the Pilot.
+**Free reduction check first.** `npm run measure -- --model claude-opus-4-8` uses
+Anthropic's `count_tokens` (free — no generation billed) to get the exact
+context-token reduction before spending anything on generation. The generation
+runs (`--model claude-opus-4-8` on `run.ts`) are the only part that costs budget;
+set `ANTHROPIC_API_KEY` in the environment (never in a file) for those.
 
 ## Status
 
-**Slice 0–2 complete:** scaffold, schemas, full-reload pipeline on the fake model.
+**Beta pipeline complete on the fake model:** scaffold, schemas, both context
+paths (full-reload + scheduled resolver), real metering, free token measurement,
+blind evaluation with a sealed A/B map, and results aggregation against ADR-0012's
+three committed outcomes. Verified end-to-end at zero cost.
+
 Data under `data/` is placeholder, marked for authoring with the Pilot. Not yet
-built: the scheduled resolver, blind evaluation, results aggregation, real runs.
+done: the real Anthropic runs (need an API key + the Pilot's authored fight-scene
+data and blind judgments).

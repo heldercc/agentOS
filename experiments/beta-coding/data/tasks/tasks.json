@@ -1,17 +1,11 @@
 {
-  "_note": "[PLACEHOLDER — autorar com o Pilot] 2 tasks for the fake-model pipeline. ADR-0012 calls for 5–10 realistic tasks in the measured run. tags must overlap seed/state tags for the scheduled path to select meaningfully.",
+  "_note": "[PLACEHOLDER — autorar com o Pilot] 6 tasks spanning the ADR-0012 range: continuation tasks with rich matching state (where the scheduler should win) and a pure-creative task with no tags (where it may under-serve — the 'Depends' map). tags must overlap seed/state tags for path B to select meaningfully.",
   "tasks": [
-    {
-      "id": "task-timing-chart",
-      "title": "Timing chart for shot 3",
-      "instruction": "Produce a frame-level timing chart for shot 3 (Rin's counter, 5s), applying the project's pacing rhythm. Note where the freeze-frame pause falls.",
-      "tags": ["timing", "pacing", "shots"]
-    },
-    {
-      "id": "task-palette-callout",
-      "title": "Colour callout for the counter moment",
-      "instruction": "Write the colour specification for the shot-3 rim-light moment, consistent with the project's palette judgment and character design.",
-      "tags": ["style", "color", "character"]
-    }
+    { "id": "task-timing-chart",   "title": "Timing chart for shot 3",           "instruction": "Produce a frame-level timing chart for shot 3 (Rin's counter, 5s), applying the project's pacing rhythm and impact-frame rules. Note where the freeze-frame pause falls.", "tags": ["timing", "pacing", "shots"] },
+    { "id": "task-palette-callout", "title": "Colour callout for the counter",     "instruction": "Write the colour specification for the shot-3 rim-light moment, consistent with the project's palette judgment, arena lighting, and character design.", "tags": ["style", "color", "character"] },
+    { "id": "task-camera-plan",     "title": "Camera plan across the 4 shots",    "instruction": "Specify the camera angle and movement for each of the four shots, applying the project's aggressor/defender angle doctrine and the locked shot list.", "tags": ["camera", "shots", "composition"] },
+    { "id": "task-sound-design",    "title": "Sound design for the decisive hit", "instruction": "Describe the sound treatment for the decisive blow in shot 3, applying the project's silence-then-thud rule over the established audio bed.", "tags": ["audio", "pacing"] },
+    { "id": "task-continuation",    "title": "Reconcile timing with open ends",    "instruction": "Given the locked shot list and the open questions, propose how the final freeze (shot 4) should be timed and framed WITHOUT deciding who wins. Flag every undecided fact.", "tags": ["structure", "timing", "character"] },
+    { "id": "task-open-creative",   "title": "Pitch a title card concept",         "instruction": "Propose three original title-card concepts for the piece. This is open creative work with no prior decisions to reuse.", "tags": [] }
   ]
 }
