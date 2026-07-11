@@ -95,6 +95,8 @@ export interface MeterRecord {
   cacheReadInputTokens: number;
   timestamp: string;
   durationMs: number;
+  /** True when inputTokens/outputTokens are estimates, not API-metered (fake/manual). */
+  estimated: boolean;
 }
 
 /**
@@ -112,13 +114,15 @@ export interface ArtifactProvenance {
   createdAt: string;
 }
 
-/** A model call's result, normalized across the real and fake ports. */
+/** A model call's result, normalized across the real, fake, and manual ports. */
 export interface ModelUsage {
   inputTokens: number;
   outputTokens: number;
   cacheCreationInputTokens: number;
   cacheReadInputTokens: number;
   requestId: string | null;
+  /** True when tokens are a chars/4 estimate (fake or manual port), not API-metered. */
+  estimated?: boolean;
 }
 
 export interface ModelResult {

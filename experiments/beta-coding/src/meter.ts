@@ -27,5 +27,6 @@ export function makeMeterRecord(
     cacheReadInputTokens: usage.cacheReadInputTokens,
     timestamp: new Date().toISOString(),
     durationMs,
+    estimated: usage.estimated === true,
   };
 }

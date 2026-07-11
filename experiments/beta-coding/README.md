@@ -49,7 +49,21 @@ data/           the entire domain — Mentor, docs, seeds, state, tasks (all PLA
 runs/<runId>/   per-work-order audit trail (committed — results are evidence)
 ```
 
-## Running it
+## One-click (recommended)
+
+Double-click **`tools/beta.bat`**. Pick a model:
+
+- **Fake** — instant, free, proves the pipeline.
+- **Manual** — spawns a Claude Code per work order on *your subscription* (no API
+  wallet — ADR-0013). It starts the mailbox watcher, runs the whole comparison,
+  opens the blind sheet for you to judge, then produces `RESULTS.md`.
+
+The bridge is managed for you: the engine drops prompts in `mailbox/outbox/`, the
+watcher (`tools/spawn.bat`) spawns Claude Code and writes answers to
+`mailbox/inbox/`, and the engine collects them. If your Claude CLI isn't
+`claude -p`, set `WORKER_CMD` before launching.
+
+## Running it (manual CLI)
 
 ```sh
 npm install
