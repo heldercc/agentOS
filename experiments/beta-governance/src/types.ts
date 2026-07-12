@@ -84,8 +84,26 @@ export interface EvidenceEvent {
   approachId?: string;
   /** Present on tray actions. */
   candidateId?: string;
-  action: "approve" | "reject" | "select" | "admit_seed" | "discard_seed";
+  action:
+    | "approve"
+    | "reject"
+    | "select"
+    | "admit_seed"
+    | "discard_seed"
+    | "present"
+    | "pilot_note";
   scripted: boolean;
+  /** `present` events (ADR-0016 §1–2): display order and what was on the table. */
+  order?: string[];
+  /** `present` events: content sha256 per displayed option. */
+  contentSha?: Record<string, string>;
+  /** `present` events: learned-seed versions active in this round's context. */
+  activeSeeds?: string[];
+  /** Anchor verdicts (ADR-0016 §3): excluded from learning and improvement. */
+  anchor?: boolean;
+  anchorId?: string;
+  /** `pilot_note` events: the owner initiating direction for the next round. */
+  note?: string;
 }
 
 /** A model call's result, normalized across the real, fake, and manual ports. */

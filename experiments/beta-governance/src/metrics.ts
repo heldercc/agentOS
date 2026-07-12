@@ -18,7 +18,8 @@ export function decisionProgress(
   events: EvidenceEvent[],
 ): DecisionProgress[] {
   return decisions.map((d) => {
-    const mine = events.filter((e) => e.decisionId === d.id);
+    // Improvement metrics read new work only — anchors are consistency's food.
+    const mine = events.filter((e) => e.decisionId === d.id && !e.anchor);
     const rounds = mine.reduce((n, e) => Math.max(n, e.round || 0), 0);
     const approvals = mine.filter((e) => e.action === "approve").length;
     const win = mine.find((e) => e.action === "select");
@@ -35,6 +36,7 @@ export function decisionProgress(
 export function approvalRateByRound(events: EvidenceEvent[]): RoundRate[] {
   const byRound = new Map<number, { proposals: number; approvals: number }>();
   for (const e of events) {
+    if (e.anchor) continue; // Improvement vs Consistency stay separate (ADR-0016)
     if (e.action !== "approve" && e.action !== "reject") continue;
     const r = byRound.get(e.round) ?? { proposals: 0, approvals: 0 };
     r.proposals += 1;

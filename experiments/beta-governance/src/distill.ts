@@ -24,6 +24,7 @@ export function foldStats(
   );
   const seenRound = new Set<string>();
   for (const e of events) {
+    if (e.anchor) continue; // ADR-0016 §3: anchors never teach
     if (!e.approachId) continue;
     const s = byId.get(e.approachId);
     if (!s) continue;

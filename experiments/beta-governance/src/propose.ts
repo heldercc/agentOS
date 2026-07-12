@@ -6,7 +6,7 @@
 
 import { existsSync } from "node:fs";
 
-import { readSessionEvents } from "./evidence.js";
+import { appendEvent, readSessionEvents } from "./evidence.js";
 import type { ModelPort } from "./model.js";
 import type { LearnedSeed, Project } from "./project.js";
 import { abs, makeRef, readJson, readText, sha256, writeArtifactOnce, writeJson } from "./stores.js";
@@ -32,6 +32,8 @@ export interface RoundArgs {
   round: number;
   port: ModelPort;
   model: string;
+  /** Marks the round's present event as scripted (smoke only). */
+  scripted?: boolean;
   log?: (msg: string) => void;
 }
 
@@ -67,17 +69,28 @@ interface FeedbackItem {
   excerpt: string;
 }
 
-/** Prior rounds' verdicts, folded from evidence — failures stay visible. */
+/** Prior rounds' verdicts and the owner's notes — failures stay visible. */
 function priorFeedback(
   runsDir: string,
   session: string,
   decision: Decision,
   round: number,
 ): FeedbackItem[] {
-  const events = readSessionEvents(runsDir, session).filter(
-    (e) => e.decisionId === decision.id && e.round < round && e.proposalId,
+  const all = readSessionEvents(runsDir, session).filter(
+    (e) => e.decisionId === decision.id && !e.anchor,
   );
   const items: FeedbackItem[] = [];
+  // The owner's own direction outranks derived feedback (pilot_note channel).
+  for (const e of all) {
+    if (e.action !== "pilot_note" || !e.note) continue;
+    items.push({
+      proposalPath: abs(runsDir, session, "evidence.jsonl"),
+      proposalId: `note-${e.ts}`,
+      verdictLine: "owner note",
+      excerpt: e.note.slice(0, FEEDBACK_EXCERPT_CHARS),
+    });
+  }
+  const events = all.filter((e) => e.round < round && e.proposalId);
   for (const e of events) {
     if (e.action !== "approve" && e.action !== "reject") continue;
     const dir = roundDir(runsDir, session, decision.id, e.round);
@@ -142,13 +155,19 @@ function assembleOne(
       ref: makeRef(repoRoot, fb.proposalPath, fb.proposalId, fb.excerpt),
       kind: "feedback",
       chars: text.length,
-      selectionReason: "prior round verdict — failures stay visible",
+      selectionReason: `prior feedback (${fb.verdictLine}) — failures stay visible`,
     });
   }
 
+  // Article 9 at runtime: below ~90% certainty of the owner's governing
+  // intent, the worker asks instead of silently guessing — but still works.
   const system =
     "You produce one focused work proposal for the decision below, following " +
-    "the working angle you are given. Answer with only the proposal body.";
+    "the working angle you are given. If a governing choice materially " +
+    "changes the work and you are less than ~90% certain of the owner's " +
+    "intent, begin with a section titled 'Perguntas ao Pilot' (max 3 short " +
+    "questions), then still produce your best proposal under explicitly " +
+    "stated assumptions. Answer with only the proposal body.";
   const prompt = parts.join("\n");
   return {
     system,
@@ -237,5 +256,25 @@ export async function runRound(args: RoundArgs): Promise<RoundMapping> {
         `${manifest.elements.length} ctx`,
     );
   }
+
+  // ADR-0016 §1–2: a click is only evidence relative to what was on the
+  // table. Record the full choice set — display order, content hashes, and
+  // the learned-seed versions active in this round's context.
+  const order = Object.keys(letters).sort();
+  const contentSha: Record<string, string> = {};
+  for (const l of order) {
+    contentSha[l] = sha256(readText(abs(dir, l, "proposal.md")));
+  }
+  appendEvent(args.runsDir, {
+    ts: new Date().toISOString(),
+    session: args.session,
+    decisionId: args.decision.id,
+    round: args.round,
+    action: "present",
+    scripted: args.scripted ?? false,
+    order,
+    contentSha,
+    activeSeeds: args.project.learned.map((s) => `${s.id}@${s.ref.version}`),
+  });
   return mapping;
 }

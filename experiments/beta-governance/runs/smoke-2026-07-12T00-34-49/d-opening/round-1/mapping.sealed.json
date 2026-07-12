@@ -1,0 +1,10 @@
+{
+  "session": "smoke-2026-07-12T00-34-49",
+  "decisionId": "d-opening",
+  "round": 1,
+  "letters": {
+    "A": "app-economy",
+    "B": "app-homage",
+    "C": "app-physical"
+  }
+}

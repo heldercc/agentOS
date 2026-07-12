@@ -1,0 +1,28 @@
+{
+  "proposalId": "C",
+  "elements": [
+    {
+      "ref": {
+        "id": "d-palette",
+        "version": "6ff260c",
+        "path": "experiments/beta-governance/data/decisions.json",
+        "sha256": "0d31754ae4dccae75d84356e2924acd29ec3f626a81de15392cea0e7f8142637"
+      },
+      "kind": "decision",
+      "chars": 158,
+      "selectionReason": "the decision under governance"
+    },
+    {
+      "ref": {
+        "id": "app-physical",
+        "version": "6ff260c",
+        "path": "experiments/beta-governance/data/approaches.json",
+        "sha256": "10900b24277344e98176d68fe3158a5fe83dece2c8ce40a41ceab6a85804da71"
+      },
+      "kind": "approach",
+      "chars": 148,
+      "selectionReason": "this proposal's assigned angle"
+    }
+  ],
+  "assembledSha256": "e0f327d0a78ddf88e01ec72ff81499a54bba4bb76d3ff3129ce7f679ab8587c0"
+}

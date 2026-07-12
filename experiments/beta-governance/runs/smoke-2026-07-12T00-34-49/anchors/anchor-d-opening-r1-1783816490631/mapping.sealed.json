@@ -1,0 +1,11 @@
+{
+  "anchorId": "anchor-d-opening-r1-1783816490631",
+  "session": "smoke-2026-07-12T00-34-49",
+  "decisionId": "d-opening",
+  "round": 1,
+  "display": {
+    "A": "B",
+    "B": "A",
+    "C": "C"
+  }
+}

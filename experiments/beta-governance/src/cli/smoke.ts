@@ -15,6 +15,7 @@
 
 import { existsSync, readdirSync, rmSync } from "node:fs";
 
+import { anchorBodies, consistency, createAnchor, resolveAnchorClick } from "../anchor.js";
 import { appendEvent, readSessionEvents } from "../evidence.js";
 import { admitCandidate, draftCandidates, foldStats } from "../distill.js";
 import { approvalRateByRound, decisionProgress } from "../metrics.js";
@@ -69,7 +70,7 @@ async function main(): Promise<void> {
   // 1 — a round produces the full audit trail.
   const m1 = await runRound({
     repoRoot: REPO_ROOT, runsDir: RUNS_DIR, session, project,
-    decision: d1, round: 1, port, model: "fake",
+    decision: d1, round: 1, port, model: "fake", scripted: true,
   });
   const d1dir = roundDir(RUNS_DIR, session, d1.id, 1);
   const letters = Object.keys(m1.letters).sort();
@@ -101,7 +102,7 @@ async function main(): Promise<void> {
 
   const m2 = await runRound({
     repoRoot: REPO_ROOT, runsDir: RUNS_DIR, session, project,
-    decision: d2, round: 1, port, model: "fake",
+    decision: d2, round: 1, port, model: "fake", scripted: true,
   });
   const w2 = letterOf(m2);
   for (const l of Object.keys(m2.letters).sort())
@@ -144,12 +145,69 @@ async function main(): Promise<void> {
     "admitted candidate leaves the tray",
   );
 
+  // 4b — ADR-0016 §1–2: the present event carries the full choice set.
+  const present = readSessionEvents(RUNS_DIR, session).filter((e) => e.action === "present");
+  const pres1 = present.find((e) => e.decisionId === d1.id);
+  assert(
+    pres1 !== undefined &&
+      (pres1.order?.length ?? 0) === project.approaches.length &&
+      Object.keys(pres1.contentSha ?? {}).length === project.approaches.length &&
+      Array.isArray(pres1.activeSeeds),
+    "present event records order, content hashes and active seeds",
+  );
+
+  // 4c — ADR-0016 §3: a blind anchor re-judges a closed round; verdicts are
+  // invisible to learning and feed only the Consistency number.
+  const statsBefore = foldStats(project.approaches, readSessionEvents(RUNS_DIR, session));
+  const anchor = createAnchor(RUNS_DIR, session, d1.id, 1);
+  const bodies = anchorBodies(RUNS_DIR, anchor);
+  assert(
+    bodies.length === project.approaches.length && bodies.every((b) => b.body.length > 0),
+    "anchor re-presents the closed round's bodies, reshuffled",
+  );
+  // Scripted judge agrees with itself: select the display letter that maps to
+  // the original winner.
+  const winDisplay = Object.entries(anchor.display).find(([, o]) => o === w1)?.[0];
+  if (!winDisplay) throw new Error("anchor lost the original winner");
+  for (const b of bodies) {
+    const { approachId } = resolveAnchorClick(RUNS_DIR, anchor, b.letter);
+    appendEvent(RUNS_DIR, {
+      ts: new Date().toISOString(), session, decisionId: d1.id, round: 1,
+      proposalId: b.letter, approachId,
+      action: b.letter === winDisplay ? "approve" : "reject",
+      scripted: true, anchor: true, anchorId: anchor.anchorId,
+    });
+  }
+  const sel = resolveAnchorClick(RUNS_DIR, anchor, winDisplay);
+  appendEvent(RUNS_DIR, {
+    ts: new Date().toISOString(), session, decisionId: d1.id, round: 1,
+    proposalId: winDisplay, approachId: sel.approachId,
+    action: "select", scripted: true, anchor: true, anchorId: anchor.anchorId,
+  });
+  const eventsWithAnchor = readSessionEvents(RUNS_DIR, session);
+  const statsAfter = foldStats(project.approaches, eventsWithAnchor);
+  assert(
+    JSON.stringify(statsBefore) === JSON.stringify(statsAfter),
+    "anchor verdicts never teach — approach stats unchanged",
+  );
+  const cons = consistency(eventsWithAnchor);
+  assert(
+    cons.anchorsCompleted === 1 && cons.agreements === 1,
+    "consistency: 1/1 anchors agree with the original winner",
+  );
+
+  // 4d — the owner's note enters the next round's context (pilot_note channel).
+  appendEvent(RUNS_DIR, {
+    ts: new Date().toISOString(), session, decisionId: d3.id, round: 0,
+    action: "pilot_note", scripted: true, note: "owner direction for the next round",
+  });
+
   // 5 — the loop closes: next round's context enumerates the learned seed.
   const project2 = loadProject(REPO_ROOT, DATA_DIR, sandboxLearned);
   assert(project2.learned.length === 1, "project reload sees the learned seed");
   await runRound({
     repoRoot: REPO_ROOT, runsDir: RUNS_DIR, session, project: project2,
-    decision: d3, round: 1, port, model: "fake",
+    decision: d3, round: 1, port, model: "fake", scripted: true,
   });
   const d3dir = roundDir(RUNS_DIR, session, d3.id, 1);
   const anyLetter = readdirSync(d3dir).find((n) => n.length === 1);
@@ -157,6 +215,12 @@ async function main(): Promise<void> {
   assert(
     manifest.elements.some((e) => e.kind === "learned-seed"),
     "next round's manifest enumerates the admitted seed — loop closed",
+  );
+  assert(
+    manifest.elements.some(
+      (e) => e.kind === "feedback" && e.selectionReason.includes("owner"),
+    ),
+    "the owner's note entered the next round's context (pilot_note)",
   );
 
   // 6 — metrics.
