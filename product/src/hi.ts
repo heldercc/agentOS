@@ -8,11 +8,19 @@
 // Layout (spec, v0 -- tools/ and workflows/ are registered categories,
 // engine support arrives when a slice demands them):
 //   human-intelligence/
-//     seeds/<domain>/<slug>/seed.yaml (+ evidence.jsonl)
-//     mentors/<id>.yaml
+//     seeds/<domain>/<slug>/seed.yaml           (current version + content_hash)
+//     seeds/<domain>/<slug>/versions/v<N>.yaml  (immutable history, write-once)
+//     seeds/<domain>/<slug>/evidence.jsonl      (append-only telemetry)
+//     seeds/<domain>/<slug>/applications.jsonl  (append-only telemetry)
+//     mentors/<id>.yaml (+ mentors/history/<id>/v<N>.yaml, write-once)
 //     candidates/<id>.yaml
 //     retired/<id>.yaml
 //     index/  (derived, regenerable)
+//
+// Immutability contract (parecer 2026-07-12): the versioned CONTENT of a Seed
+// or Mentor is write-once per version -- revision bumps the version, history
+// stays recoverable forever. Telemetry (applications, evidence) is append-only
+// BESIDE the content, never inside it, so a version's hash never drifts.
 
 import {
   appendFileSync,
@@ -26,7 +34,7 @@ import { resolve } from "node:path";
 import YAML from "yaml";
 
 import { PKG_ROOT, projectDir, WORKSPACE_DIR } from "./paths.js";
-import { abs, readJson, readText } from "./stores.js";
+import { abs, readJson, readText, sha256 } from "./stores.js";
 
 /**
  * The library root. PRODUCT_HI_DIR overrides it (read per call, not at
@@ -82,6 +90,7 @@ export interface GuruSeed {
     admitted_at?: string;
     note?: string;
   };
+  /** Telemetry — hydrated from evidence.jsonl, never stored in seed.yaml. */
   evidence: {
     supporting: string[];
     contradicting: string[];
@@ -90,8 +99,10 @@ export interface GuruSeed {
     use_when: string[];
     avoid_when: string[];
   };
-  /** Automatic trail: every work order whose context this seed entered. */
+  /** Telemetry — hydrated from applications.jsonl, never stored in seed.yaml. */
   applied_in: SeedApplication[];
+  /** sha256 of the versioned content (everything except telemetry). */
+  content_hash?: string;
 }
 
 /**
@@ -110,6 +121,8 @@ export interface Mentor {
   createdAt: string;
   seeds: { id: string; version: number }[];
   selection_notes: string[];
+  /** sha256 of the composition's content. */
+  content_hash?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -147,6 +160,102 @@ export function slugifyId(text: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Immutable provenance (parecer 2026-07-12). The versioned content of a Seed
+// or Mentor is write-once per version; telemetry is append-only sidecars.
+
+const SEED_TELEMETRY_KEYS: readonly string[] = ["evidence", "applied_in", "content_hash"];
+
+/** The versioned content of a seed: everything except telemetry and hash. */
+function seedContent(seed: GuruSeed): Record<string, unknown> {
+  const content: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(seed)) {
+    if (!SEED_TELEMETRY_KEYS.includes(k)) content[k] = v;
+  }
+  return content;
+}
+
+/** The hash a provenance sidecar records for the seed version it applied. */
+export function seedContentHash(seed: GuruSeed): string {
+  return sha256(YAML.stringify(seedContent(seed)));
+}
+
+/** Write the current record and its immutable version snapshot (write-once). */
+function writeSeedRecord(seed: GuruSeed): void {
+  const content = seedContent(seed);
+  const record = { ...content, content_hash: sha256(YAML.stringify(content)) };
+  writeYaml(seedYamlPath(seed), record);
+  const vPath = resolve(seedDir(seed), "versions", `v${seed.version}.yaml`);
+  if (!existsSync(vPath)) {
+    mkdirSync(resolve(seedDir(seed), "versions"), { recursive: true });
+    // flag wx: a version, once written, can never be overwritten.
+    writeFileSync(vPath, YAML.stringify(record), { encoding: "utf8", flag: "wx" });
+  }
+}
+
+function readJsonl<T>(path: string): T[] {
+  if (!existsSync(path)) return [];
+  return readText(path)
+    .split(/\r?\n/)
+    .filter((l) => l.trim() !== "")
+    .map((l) => JSON.parse(l) as T);
+}
+
+/** Attach the append-only telemetry sidecars to the versioned content. */
+function hydrateSeed(raw: GuruSeed, dir: string): GuruSeed {
+  const seed: GuruSeed = {
+    ...raw,
+    evidence: raw.evidence ?? { supporting: [], contradicting: [] },
+    applied_in: raw.applied_in ?? [],
+  };
+  const apps = readJsonl<SeedApplication>(resolve(dir, "applications.jsonl"));
+  if (apps.length > 0) seed.applied_in = apps;
+  const entries = readJsonl<SeedEvidenceEntry>(resolve(dir, "evidence.jsonl"));
+  if (entries.length > 0) {
+    seed.evidence = { supporting: [], contradicting: [] };
+    for (const e of entries) {
+      seed.evidence[e.kind].push(
+        `${e.ts.slice(0, 10)} ${e.note}${e.project ? ` (${e.project})` : ""}`,
+      );
+    }
+  }
+  return seed;
+}
+
+/**
+ * One-time, mechanical, idempotent: a seed written before this correction
+ * carries telemetry inline -- move it to the sidecars, stamp the content
+ * hash, and snapshot the current version so history starts now. Returns
+ * true when the record needed correcting.
+ */
+function ensureSeedSidecars(dir: string): boolean {
+  const p = resolve(dir, "seed.yaml");
+  const raw = readYaml<GuruSeed>(p);
+  const inlineApps = raw.applied_in ?? [];
+  const inlineEvidence =
+    (raw.evidence?.supporting.length ?? 0) + (raw.evidence?.contradicting.length ?? 0);
+  const legacy =
+    raw.content_hash === undefined || inlineApps.length > 0 || inlineEvidence > 0;
+  if (!legacy) return false;
+  const appsPath = resolve(dir, "applications.jsonl");
+  if (inlineApps.length > 0 && !existsSync(appsPath)) {
+    for (const a of inlineApps) appendFileSync(appsPath, JSON.stringify(a) + "\n", "utf8");
+  }
+  // Inline evidence lines without a jsonl (hand-edited records): preserve them
+  // as entries -- the line IS the note, nothing is lost.
+  const evPath = resolve(dir, "evidence.jsonl");
+  if (inlineEvidence > 0 && !existsSync(evPath) && raw.evidence) {
+    for (const kind of ["supporting", "contradicting"] as const) {
+      for (const line of raw.evidence[kind]) {
+        const entry: SeedEvidenceEntry = { ts: new Date().toISOString(), kind, note: line };
+        appendFileSync(evPath, JSON.stringify(entry) + "\n", "utf8");
+      }
+    }
+  }
+  writeSeedRecord(raw);
+  return true;
+}
+
+// ---------------------------------------------------------------------------
 // Readers -- the library is small by design; full scans stay honest and cheap.
 
 export function listSeeds(): GuruSeed[] {
@@ -156,10 +265,19 @@ export function listSeeds(): GuruSeed[] {
     const dDir = resolve(seedsRoot(), domain);
     for (const slug of readdirSync(dDir)) {
       const p = resolve(dDir, slug, "seed.yaml");
-      if (existsSync(p)) out.push(readYaml<GuruSeed>(p));
+      if (existsSync(p)) out.push(hydrateSeed(readYaml<GuruSeed>(p), resolve(dDir, slug)));
     }
   }
   return out;
+}
+
+/** A historical version, recoverable exactly as written (telemetry attached). */
+export function getSeedVersion(seedId: string, version: number): GuruSeed | null {
+  const current = getSeed(seedId);
+  if (!current) return null;
+  const p = resolve(seedDir(current), "versions", `v${version}.yaml`);
+  if (!existsSync(p)) return null;
+  return hydrateSeed(readYaml<GuruSeed>(p), seedDir(current));
 }
 
 export function listCandidates(): GuruSeed[] {
@@ -246,7 +364,7 @@ export function admitSeed(seedId: string, editedRule?: string): GuruSeed {
   seed.status = "admitted";
   seed.provenance.admitted_by = seed.owner;
   seed.provenance.admitted_at = new Date().toISOString();
-  writeYaml(resolve(seedDir(seed), "seed.yaml"), seed);
+  writeSeedRecord(seed);
   mkdirSync(retiredRoot(), { recursive: true });
   renameSync(
     resolve(candidatesRoot(), `${seedId}.yaml`),
@@ -263,12 +381,41 @@ export function rejectSeed(seedId: string): void {
   renameSync(p, resolve(retiredRoot(), `${seedId}.rejected.yaml`));
 }
 
-/** The automatic application trail -- must never break a work order. */
+/**
+ * The automatic application trail -- must never break a work order. Appended
+ * to the seed's applications.jsonl sidecar: telemetry never touches the
+ * versioned content.
+ */
 export function recordSeedApplication(seedId: string, app: SeedApplication): void {
   const seed = getSeed(seedId);
   if (!seed) return;
-  seed.applied_in.push(app);
-  writeYaml(resolve(seedDir(seed), "seed.yaml"), seed);
+  ensureSeedSidecars(seedDir(seed));
+  appendFileSync(
+    resolve(seedDir(seed), "applications.jsonl"),
+    JSON.stringify(app) + "\n",
+    "utf8",
+  );
+}
+
+/**
+ * The Pilot's hand: revise an admitted seed's content. The version bumps and
+ * every previous version stays recoverable -- content is never edited in
+ * place (parecer 2026-07-12).
+ */
+export function reviseSeed(
+  seedId: string,
+  changes: { title?: string; rule?: string; why?: string },
+): GuruSeed {
+  const seed = getSeed(seedId);
+  if (!seed) throw new Error(`unknown admitted seed ${seedId}`);
+  // A pre-correction record snapshots its current version before it bumps.
+  ensureSeedSidecars(seedDir(seed));
+  if (changes.title && changes.title.trim() !== "") seed.title = changes.title.trim();
+  if (changes.rule && changes.rule.trim() !== "") seed.rule = changes.rule.trim();
+  if (changes.why && changes.why.trim() !== "") seed.why = changes.why.trim();
+  seed.version += 1;
+  writeSeedRecord(seed);
+  return getSeed(seedId) as GuruSeed;
 }
 
 /** One line of the seed's append-only evidence file. */
@@ -281,10 +428,10 @@ export interface SeedEvidenceEntry {
 }
 
 /**
- * The user's judgement returning to the asset (ADR-0020, Consequences):
- * a legible line on the seed record itself plus a full entry in the seed's
- * append-only evidence.jsonl. Only the user grades a seed -- the Kernel
- * never marks its own homework.
+ * The user's judgement returning to the asset (ADR-0020, Consequences): one
+ * entry in the seed's append-only evidence.jsonl, hydrated onto the record at
+ * read time -- the versioned content is never rewritten by telemetry. Only
+ * the user grades a seed; the Kernel never marks its own homework.
  */
 export function recordSeedEvidence(
   seedId: string,
@@ -292,6 +439,7 @@ export function recordSeedEvidence(
 ): GuruSeed {
   const seed = getSeed(seedId);
   if (!seed) throw new Error(`unknown admitted seed ${seedId}`);
+  ensureSeedSidecars(seedDir(seed));
   const entry: SeedEvidenceEntry = {
     ts: new Date().toISOString(),
     kind: args.kind,
@@ -299,17 +447,40 @@ export function recordSeedEvidence(
     ...(args.project ? { project: args.project } : {}),
     ...(args.workOrder ? { workOrder: args.workOrder } : {}),
   };
-  seed.evidence[args.kind].push(
-    `${entry.ts.slice(0, 10)} ${args.note}${args.project ? ` (${args.project})` : ""}`,
-  );
-  writeYaml(resolve(seedDir(seed), "seed.yaml"), seed);
   appendFileSync(resolve(seedDir(seed), "evidence.jsonl"), JSON.stringify(entry) + "\n", "utf8");
-  return seed;
+  return getSeed(seedId) as GuruSeed;
 }
 
 // ---------------------------------------------------------------------------
 // Mentors -- authored and evolved by the user (the "director" the Pilot
-// builds); saving a change bumps the version, never silently.
+// builds); saving a change bumps the version, never silently, and every
+// version stays recoverable from mentors/history/.
+
+function mentorContent(m: Mentor): Record<string, unknown> {
+  const content: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(m)) {
+    if (k !== "content_hash") content[k] = v;
+  }
+  return content;
+}
+
+/** Write the current record and its immutable version snapshot (write-once). */
+function writeMentorRecord(mentor: Mentor): void {
+  const content = mentorContent(mentor);
+  const record = { ...content, content_hash: sha256(YAML.stringify(content)) };
+  writeYaml(resolve(mentorsRoot(), `${mentor.id}.yaml`), record);
+  const vPath = resolve(mentorsRoot(), "history", mentor.id, `v${mentor.version}.yaml`);
+  if (!existsSync(vPath)) {
+    mkdirSync(resolve(mentorsRoot(), "history", mentor.id), { recursive: true });
+    writeFileSync(vPath, YAML.stringify(record), { encoding: "utf8", flag: "wx" });
+  }
+}
+
+/** A historical composition, recoverable exactly as written. */
+export function getMentorVersion(mentorId: string, version: number): Mentor | null {
+  const p = resolve(mentorsRoot(), "history", mentorId, `v${version}.yaml`);
+  return existsSync(p) ? readYaml<Mentor>(p) : null;
+}
 
 export function saveMentor(args: {
   id?: string;
@@ -321,6 +492,8 @@ export function saveMentor(args: {
 }): Mentor {
   const id = args.id ?? slugifyId(args.title);
   const existing = listMentors().find((m) => m.id === id) ?? null;
+  // A pre-correction record snapshots its current version before it bumps.
+  if (existing && existing.content_hash === undefined) writeMentorRecord(existing);
   const seeds = args.seedIds
     .map((sid) => getSeed(sid))
     .filter((s): s is GuruSeed => s !== null)
@@ -335,8 +508,39 @@ export function saveMentor(args: {
     seeds,
     selection_notes: args.selectionNotes.filter((n) => n.trim() !== ""),
   };
-  writeYaml(resolve(mentorsRoot(), `${id}.yaml`), mentor);
+  writeMentorRecord(mentor);
   return mentor;
+}
+
+/**
+ * One-time, mechanical, idempotent (parecer 2026-07-12): bring a library
+ * written before the immutability correction up to it -- telemetry moves to
+ * sidecars, content hashes are stamped, and every current version gets its
+ * first immutable snapshot. Returns how many records were corrected.
+ */
+export function ensureImmutableProvenance(): number {
+  let corrected = 0;
+  if (existsSync(seedsRoot())) {
+    for (const domain of readdirSync(seedsRoot())) {
+      const dDir = resolve(seedsRoot(), domain);
+      for (const slug of readdirSync(dDir)) {
+        if (
+          existsSync(resolve(dDir, slug, "seed.yaml")) &&
+          ensureSeedSidecars(resolve(dDir, slug))
+        ) {
+          corrected += 1;
+        }
+      }
+    }
+  }
+  for (const m of listMentors()) {
+    const vPath = resolve(mentorsRoot(), "history", m.id, `v${m.version}.yaml`);
+    if (m.content_hash === undefined || !existsSync(vPath)) {
+      writeMentorRecord(m);
+      corrected += 1;
+    }
+  }
+  return corrected;
 }
 
 // ---------------------------------------------------------------------------
@@ -381,12 +585,17 @@ export function migrateLegacyExpertise(): number {
       });
       if (r.status === "admitted") {
         const admitted = admitSeed(seed.id);
-        admitted.applied_in = r.appliedIn.map((a) => ({
-          project: a.projectId,
-          workOrder: a.workOrderId,
-          ts: a.ts,
-        }));
-        writeYaml(seedYamlPath(admitted), admitted);
+        // The legacy application trail lands in the telemetry sidecar --
+        // never inside the versioned content.
+        const appsPath = resolve(seedDir(admitted), "applications.jsonl");
+        for (const a of r.appliedIn) {
+          const app: SeedApplication = {
+            project: a.projectId,
+            workOrder: a.workOrderId,
+            ts: a.ts,
+          };
+          appendFileSync(appsPath, JSON.stringify(app) + "\n", "utf8");
+        }
       }
       migrated += 1;
     }

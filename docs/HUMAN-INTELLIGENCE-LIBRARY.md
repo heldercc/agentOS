@@ -34,15 +34,18 @@ human-intelligence/
 ├── seeds/
 │   ├── creative-direction/
 │   │   ├── restraint-before-impact/
-│   │   │   ├── seed.yaml
+│   │   │   ├── seed.yaml            (current version + content_hash)
+│   │   │   ├── versions/v<N>.yaml   (immutable history, write-once)
 │   │   │   ├── explanation.md
 │   │   │   ├── examples/
 │   │   │   ├── counterexamples/
-│   │   │   └── evidence.jsonl
+│   │   │   ├── evidence.jsonl       (append-only telemetry)
+│   │   │   └── applications.jsonl   (append-only telemetry)
 │   │   └── avoid-generic-staging/
 │   ├── cinematography/
 │   └── pt-pt-voice/
-├── expertises/   (implemented as mentors/ — see naming note)
+├── expertises/   (implemented as mentors/ — see naming note;
+│                  each mentors/<id>.yaml has mentors/history/<id>/v<N>.yaml)
 ├── tools/
 ├── workflows/
 ├── candidates/
@@ -52,6 +55,22 @@ human-intelligence/
 
 Disk is the source of truth. Every other view — UI, Kernel selection,
 search index — is derived from what lives in these folders.
+
+### 1.1 Immutability (correction of 2026-07-12)
+
+The versioned **content** of a Seed or Mentor — rule, why, scope,
+composition — is write-once per version. Revision bumps the version and
+writes a new snapshot under `versions/` (Seeds) or `history/` (Mentors);
+no previous version is ever edited or deleted, so any Artifact that names
+"seed X v2" can recover exactly what v2 said, forever.
+
+**Telemetry never lives inside the versioned content.** Where a seed was
+applied (`applications.jsonl`) and what the Pilot's verdicts were
+(`evidence.jsonl`) are append-only sidecars, hydrated onto the record at
+read time. A version's `content_hash` (sha256 of the content) therefore
+never drifts, and every Artifact provenance sidecar records the hash of
+the artifact text, of the Work Order's context manifest, and of each seed
+version it applied — the declaration is verifiable, not just legible.
 
 ## 2. GuruSeed Record
 
@@ -92,6 +111,11 @@ applicability:
     - the scene is the audience's first exposure to the stakes
     - restraint would read as indecision rather than confidence
 ```
+
+(The `evidence:` block above is the hydrated view the product shows; on
+disk those lines live in `evidence.jsonl`, the application trail lives in
+`applications.jsonl`, and `seed.yaml` carries only the versioned content
+plus its `content_hash` — see §1.1.)
 
 ## 3. Mentor Expertise (Mentor)
 

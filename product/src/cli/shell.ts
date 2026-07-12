@@ -50,6 +50,7 @@ import {
   topOpenQuestion,
 } from "../kernel.js";
 import {
+  ensureImmutableProvenance,
   listCandidates,
   listMentors,
   listSeeds,
@@ -69,6 +70,16 @@ try {
   if (n > 0) console.log(`migrated ${n} ADR-0019 expertise record(s) into the HI library`);
 } catch (e) {
   console.error("legacy expertise migration failed:", e);
+}
+
+// One-time, mechanical, idempotent (parecer 2026-07-12): telemetry moves to
+// sidecars, content hashes are stamped, current versions get their first
+// immutable snapshot.
+try {
+  const c = ensureImmutableProvenance();
+  if (c > 0) console.log(`immutable provenance: corrected ${c} HI record(s)`);
+} catch (e) {
+  console.error("immutable provenance correction failed:", e);
 }
 
 // ---------------------------------------------------------------------------
@@ -894,6 +905,7 @@ var LBL = {
   seed_rejected: "GuruSeed rejeitada por mim",
   seed_candidate_extracted: "O refinamento gerou uma GuruSeed candidata",
   seed_evidence: "A minha evidência voltou à GuruSeed",
+  seed_revised: "Revi uma GuruSeed — nova versão, a anterior fica na história",
   context_sufficient: "Declarei o contexto suficiente — perguntas adiadas",
   mentor_saved: "Mentor guardado/evoluído",
   decision_opened: "Superfície de decisão aberta",

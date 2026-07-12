@@ -25,6 +25,7 @@ import {
   readWorkOrders,
   recordSeedEvidenceGoverned,
   refineOption,
+  reviseSeedGoverned,
   runCandidate,
   runConsult,
   runDecisionSurface,
@@ -36,11 +37,11 @@ import {
   topOpenQuestion,
   type ArtifactProvenance,
 } from "../kernel.js";
-import { getCandidate, getSeed, seedYamlPath } from "../hi.js";
+import { getCandidate, getMentorVersion, getSeed, getSeedVersion, seedYamlPath } from "../hi.js";
 import { resolveSeeds } from "../resolver.js";
 import { buildActual } from "../effort.js";
 import { projectDir, WORKSPACE_DIR } from "../paths.js";
-import { abs, readJson, readText, writeArtifactOnce } from "../stores.js";
+import { abs, readJson, readText, sha256, writeArtifactOnce } from "../stores.js";
 import { FakeRuntime } from "../runtime.js";
 import type { ContextManifest } from "../types.js";
 
@@ -399,6 +400,93 @@ async function main(): Promise<void> {
       .split("\n").length === 1,
   );
 
+  // Immutable provenance (parecer 2026-07-12): versioned content is
+  // write-once per version; telemetry lives beside it, never inside it;
+  // artifact, manifest and seed all carry verifiable hashes.
+  check(
+    "22a. seed.yaml carries no telemetry — sidecars only",
+    (() => {
+      const y = readText(seedYamlPath(graded));
+      return !y.includes("applied_in:") && !y.includes("evidence:") && y.includes("content_hash:");
+    })(),
+  );
+  check(
+    "22b. the admitted v1 is recoverable from versions/",
+    getSeedVersion(seed.id, 1)?.rule === "When two options are equal, the shorter one wins.",
+  );
+  const revised = reviseSeedGoverned(
+    project.id,
+    seed.id,
+    { rule: "When two options are equal, the shorter honest one wins." },
+    true,
+  );
+  check(
+    "22c. revision bumps to v2 and v1 stays untouched",
+    revised.version === 2 &&
+      getSeedVersion(seed.id, 2)?.rule === revised.rule &&
+      getSeedVersion(seed.id, 1)?.rule !== revised.rule,
+  );
+  check(
+    "22d. content hashes are real and version-specific",
+    (() => {
+      const v1 = getSeedVersion(seed.id, 1);
+      const v2 = getSeedVersion(seed.id, 2);
+      return (
+        (v1?.content_hash ?? "").length === 64 &&
+        (v2?.content_hash ?? "").length === 64 &&
+        v1?.content_hash !== v2?.content_hash
+      );
+    })(),
+  );
+  check(
+    "22e. a written version is immutable on disk",
+    (() => {
+      try {
+        writeArtifactOnce(abs(seedYamlPath(graded), "..", "versions", "v1.yaml"), "overwrite");
+        return false;
+      } catch {
+        return true;
+      }
+    })(),
+  );
+  check(
+    "22f. artifact provenance carries verifiable hashes (artifact, manifest, seed)",
+    (() => {
+      const artifactText = readText(exec2.artifacts[0] ?? "");
+      const manifestText = readText(
+        abs(
+          projectDir(project.id),
+          "iterations",
+          "it-002",
+          "workorders",
+          prov.workOrderId,
+          "manifest.json",
+        ),
+      );
+      return (
+        prov.artifactSha256 === sha256(artifactText) &&
+        prov.manifestSha256 === sha256(manifestText) &&
+        prov.seeds.every((s) => (s.contentHash ?? "").length === 64)
+      );
+    })(),
+  );
+  const mentor2 = saveMentorGoverned(
+    project.id,
+    {
+      title: "Smoke Mentor",
+      persona: "brevity above all, honesty above brevity",
+      seedIds: [seed.id],
+      selectionNotes: [],
+    },
+    true,
+  );
+  check(
+    "22g. mentor revision bumps and v1 stays recoverable from history/",
+    mentor2.version === 2 &&
+      getMentorVersion(mentor.id, 1)?.persona === "brevity above all" &&
+      getMentorVersion(mentor.id, 2)?.seeds.some((s) => s.id === seed.id && s.version === 2) === true,
+  );
+
   // The story: the whole project, including the new lineage, from disk.
   const story = storyOf(project.id);
   const flat = story.iterations.flatMap((i) => i.items);
@@ -430,6 +518,10 @@ async function main(): Promise<void> {
   check(
     "20x. the evidence moment is in the story",
     flat.some((i) => i.action === "seed_evidence" && i.actor === "pilot"),
+  );
+  check(
+    "22h. the revision moment is in the story as the user's",
+    flat.some((i) => i.action === "seed_revised" && i.actor === "pilot"),
   );
 
   // Cross-cutting invariants.

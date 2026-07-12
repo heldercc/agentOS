@@ -27,7 +27,9 @@ import {
   recordSeedApplication,
   recordSeedEvidence,
   rejectSeed,
+  reviseSeed,
   saveMentor,
+  seedContentHash,
   seedYamlPath,
   type GuruSeed,
   type Mentor,
@@ -46,7 +48,7 @@ import {
   WORKSPACE_DIR,
   workOrdersDir,
 } from "./paths.js";
-import { abs, readJson, readText, writeArtifactOnce, writeJson } from "./stores.js";
+import { abs, readJson, readText, sha256, writeArtifactOnce, writeJson } from "./stores.js";
 import type { Runtime } from "./runtime.js";
 import type {
   AgentRole,
@@ -170,9 +172,15 @@ export interface ArtifactProvenance {
   iteration: number;
   effortLevel: string;
   model: string;
+  /** sha256 of the artifact text exactly as returned and stored. */
+  artifactSha256: string;
+  /** sha256 of the work order's manifest.json exactly as written. */
+  manifestSha256: string;
   seeds: {
     id: string;
     version: number;
+    /** sha256 of the seed's versioned content, as applied. */
+    contentHash: string;
     title: string;
     reason: string;
     mentorId?: string;
@@ -1058,15 +1066,25 @@ export async function runExecute(args: {
     // Provenance by reference, on the artifact itself (gap audit): which
     // human judgement shaped this output, at which version, and why it was
     // selected — the artifact text stays byte-faithful, the sidecar declares.
+    // Hashes of artifact, manifest and each seed's content (parecer
+    // 2026-07-12) make the declaration verifiable, not just legible.
+    const manifestPath = abs(
+      workOrdersDir(project.id, project.iteration),
+      record.id,
+      "manifest.json",
+    );
     const provenance: ArtifactProvenance = {
       workOrderId: record.id,
       agentId: agent.id,
       iteration: project.iteration,
       effortLevel: record.effortLevel,
       model: record.model,
+      artifactSha256: sha256(text),
+      manifestSha256: sha256(readText(manifestPath)),
       seeds: applied.map((r) => ({
         id: r.seed.id,
         version: r.seed.version,
+        contentHash: r.seed.content_hash ?? seedContentHash(r.seed),
         title: r.seed.title,
         reason: r.reason,
         ...(r.mentorId ? { mentorId: r.mentorId, mentorTitle: r.mentorTitle } : {}),
@@ -1186,6 +1204,25 @@ export function recordSeedEvidenceGoverned(
   event(project, "pilot", "seed_evidence", scripted, {
     seedId,
     note: `${kind === "supporting" ? "reforçou" : "contradisse"}: ${note}`,
+  });
+  return seed;
+}
+
+/**
+ * The Pilot's hand: revise an admitted seed's content. Versioned, never in
+ * place — the previous version stays recoverable forever (parecer 2026-07-12).
+ */
+export function reviseSeedGoverned(
+  projectId: string,
+  seedId: string,
+  changes: { title?: string; rule?: string; why?: string },
+  scripted = false,
+): GuruSeed {
+  const project = getProject(projectId);
+  const seed = reviseSeed(seedId, changes);
+  event(project, "pilot", "seed_revised", scripted, {
+    seedId,
+    note: `${seed.title} → v${seed.version}`,
   });
   return seed;
 }
