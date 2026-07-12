@@ -10,13 +10,13 @@ organising, selecting, applying and evaluating HUMAN intelligence — models
 are interchangeable engines, agents are temporary vessels, expertise is the
 durable asset. The minimum complete product is redefined: no loop is
 complete without expertise scheduling. The corrective Human Intelligence
-slice is BUILT (GuruSeeds + Mentors on disk in the gitignored
+slice is BUILT and PROVEN LIVE on the real cli runtime (Session 011,
+diary addendum 11): GuruSeeds + Mentors on disk in the gitignored
 product/human-intelligence/ library, per-Work-Order Seed Resolver with
-reasons, Decision Surfaces, Inteligência Humana UI; smoke 52/52) but not
-yet proven on the real cli runtime — that live proof gates everything.
-Product freeze holds (ADR-0020 measure 1): only the corrective slice and
-grave defects until the gap closes. Then: the Songoku Beta lived INSIDE
-the product; the rigs stay frozen.
+reasons, Decision Surfaces, artifact provenance sidecars, evidence
+returning to the seed, the "Chega" sufficiency act, Inteligência Humana
+UI; smoke 64/64. The ADR-0020 gate is satisfied — the Songoku Beta run
+INSIDE the product is unblocked; the rigs stay frozen.
 
 ## Current State
 Copilot transition complete (founding Copilot → current Copilot); founding
@@ -83,14 +83,14 @@ commoditized and swappable.
 The Two Grand Objectives are explicit (docs/OBJECTIVES.md): (A) token
 economy — the Kernel; (B) taste governance by clicks — the user's loop.
 The product shell (ADR-0018/0019/0020) is the spine; the rigs feed it
-evidence. In order: (1) LIVE PROOF of the Human Intelligence slice on the
-real cli runtime — Resolver selecting the migrated seed into a real Work
-Order, provenance on the artifact, evidence returning to the seed
-(ADR-0020, Consequences: the Songoku Beta resumes only after this);
+evidence. The HI-slice live proof is DONE (Session 011). In order now:
+(1) the Songoku Beta run INSIDE the product shell (Operating Model §11 —
+nothing pre-authored; the Pilot initiates it);
 (2) the Pilot judges the 4 real ascensao-t2 rounds at localhost:4700 and
 answers the 2 aggregated questions (Beta 2 evidence, still owed);
-(3) the Songoku Beta run INSIDE the product shell (Operating Model §11 —
-nothing pre-authored); (4) what kernel.ts proves out gets specified in
+(3) remaining product learnings from addendum 8: semantic question dedup
+and role-shaped execution outputs;
+(4) what kernel.ts proves out gets specified in
 engineering/ as Kernel v0 (Book II). Pilot's earlier flags remain:
 Constitution polish pass; SavePoint structural criteria when indexing begins.
 
@@ -102,12 +102,11 @@ commit is invisible state and breaks the model. (Pilot's standing grant,
 2026-07-12.)
 
 ## Last Updated
-Session 011 (2026-07-12, afternoon) — picked up Session 010's thread after
-its account ran out of tokens mid-close: verified its Human Intelligence
-slice independently (tsc strict clean, smoke 52/52), wrote diary addendum
-10, updated this compass. Session 010's substance: the Pilot's
-foundation-to-product gap audit, ADR-0020 (Foundation sovereign),
-GOVERNANCE-INTERACTION-MODEL + HUMAN-INTELLIGENCE-LIBRARY doctrine, and
-the corrective HI slice (hi.ts, resolver.ts, Decision Surfaces,
-Inteligência Humana UI). Detail: docs/navigation/2026/2026-07.md addenda
-8–10.
+Session 011 (2026-07-12, afternoon) — picked up Session 010's thread,
+verified its work (addendum 10), then completed and PROVED the corrective
+slice live on the real cli runtime (addendum 11): artifact provenance
+sidecars, evidence returning to the seed, and the "Chega — constrói com o
+que tens" sufficiency act (ADR-0020 §3). Smoke 64/64, tsc strict. The
+ADR-0020 gate is satisfied; the Songoku Beta inside the product is
+unblocked and belongs to the Pilot. Detail: docs/navigation/2026/2026-07.md
+addenda 8–11.
