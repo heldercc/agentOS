@@ -919,7 +919,6 @@ connbar.id = "connbar";
 connbar.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:9;padding:6px 16px;" +
   "background:#3a2f14;color:#e0a63f;font-size:13px;display:none";
 document.body.appendChild(connbar);
-var pollFailing = false;
 var lastPollOkAt = Date.now();
 
 function esc(s) {
@@ -1049,13 +1048,18 @@ function createProject() {
 }
 
 // ---------------- project ----------------
+// Ponto F — verified live: a dead server does NOT reject the fetch; the
+// connection just hangs, the catch never fires, and hung polls pile up until
+// the browser's connection pool starves. So every poll carries its own 5s
+// abort, and the banner derives from the AGE of the last successful poll —
+// never from a rejection that may never come.
 function load() {
-  fetch("/api/state?project=" + encodeURIComponent(projectId))
+  var ctl = new AbortController();
+  var kill = setTimeout(function () { ctl.abort(); }, 5000);
+  fetch("/api/state?project=" + encodeURIComponent(projectId), { signal: ctl.signal })
     .then(function (r) { return r.json(); })
     .then(function (s) {
-      // Ponto F — a poll that returns IS the App answering; the banner only
-      // reflects a poll that fails, never one that simply found no change.
-      pollFailing = false;
+      clearTimeout(kill);
       lastPollOkAt = Date.now();
       connbar.style.display = "none";
       // Re-render only on real change — a quiet poll must not eat a click.
@@ -1069,7 +1073,7 @@ function load() {
       else if (view === "historia") loadStory();
       else loadHi();
     })
-    .catch(function () { pollFailing = true; /* setInterval retries — the banner tells the Pilot */ });
+    .catch(function () { clearTimeout(kill); /* setInterval retries — the banner tells the Pilot */ });
 }
 
 // Ponto D — cada operação pertence a uma fase; o perfil do projeto dá o
@@ -1158,9 +1162,11 @@ setInterval(function () {
     hb.textContent = ht.text;
     hb.style.color = ht.amber ? "var(--warn)" : "";
   }
-  if (pollFailing) {
+  // Staleness of the last GOOD poll is the only honest signal — a hung fetch
+  // never rejects, so a catch-driven flag would lie by omission.
+  if (projectId) {
     var downS = Math.round((Date.now() - lastPollOkAt) / 1000);
-    if (downS > 6) {
+    if (downS > 8) {
       connbar.style.display = "block";
       connbar.textContent = "Ligação à App interrompida — última atualização há " + downS +
         "s. A tentar novamente…";
