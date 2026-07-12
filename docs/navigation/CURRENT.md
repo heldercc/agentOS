@@ -12,7 +12,7 @@ durable asset. The minimum complete product is redefined: no loop is
 complete without expertise scheduling. The corrective Human Intelligence
 slice is BUILT and its MECHANICS are proven on the real cli runtime
 (Session 011, diary addendum 11; declaration corrected in addendum 12):
-GuruSeeds + Mentors on disk in the gitignored product/human-intelligence/
+GuruSeeds + Senseis (then Mentors) on disk in the gitignored product/human-intelligence/
 library, per-Work-Order Seed Resolver with reasons, Decision Surfaces,
 artifact provenance sidecars, evidence returning to the seed, the "Chega"
 sufficiency act, Inteligência Humana UI. Provenance is IMMUTABLE (Session
@@ -43,7 +43,7 @@ asset.
 PRIMARY OBJECTIVE (Pilot, Session 004 — registered verbatim in intent):
 build the **AgentOS App** — a governance cockpit where the Pilot launches an
 objective and refines it across many daily sessions. The Pilot creates,
-selects and improves workers (Mentors); the system proposes detail per layer
+selects and improves workers (Senseis); the system proposes detail per layer
 of the work (story, characters, shots, style, production); the Pilot governs —
 evaluate, approve, delete — and the cycle restarts, every day. A scheduler
 economizes tokens by reusing everything already decided (seeds + Project
@@ -59,7 +59,7 @@ commoditized and swappable.
   Session 001 choice. CLOSED: no Copilot re-raises repo visibility.
 - Architecture before implementation (ADR-0000; Article 6).
 - Navigation is the Pilot/Copilot compass — Copilot-agnostic (ADR-0001).
-- Mentor Expertises replace personas (ADR-0002).
+- Mentor Expertises replace personas (ADR-0002); the entity is canonically the SENSEI since ADR-0021 — CLOSED, no Copilot reopens the name.
 - Context is a scheduled resource (ADR-0003; Article 5).
 - Constitution supersedes Principles (ADR-0004).
 - Seed Resolver renames InjectSeed (ADR-0005).
@@ -92,11 +92,19 @@ commoditized and swappable.
   idea leaving the Incubator.
 
 ## Next Bearing
-The Two Grand Objectives are explicit (docs/OBJECTIVES.md): (A) token
+**The CEO programme (ADR-0022) is the governing order since Session 015:**
+PHASE 2 data/transition safety → PHASE 3 module registry + minimal CI →
+PHASE 4 Project Engine MVP (a Kernel mechanism — the Pilot's addendum is a
+central invariant) → PHASE 5 Compreender/Decidir → PHASE 6 Review/Mode
+Edit/Sensei evolution → PHASE 7 verticals (A/B, mobile, video factory,
+researched Reference Guild). Hard budget enforcement is EXPLICITLY
+deferred (measure and disclose only) until its registered reopen trigger.
+
+The Two Grand Objectives remain explicit (docs/OBJECTIVES.md): (A) token
 economy — the Kernel; (B) taste governance by clicks — the user's loop.
 The product shell (ADR-0018/0019/0020) is the spine; the rigs feed it
-evidence. Immutable provenance is DONE (Session 012). The order set by the
-Pilot's + GPT's parecer (2026-07-12):
+evidence. The earlier order set by the Pilot's + GPT's parecer
+(2026-07-12) stays valid INSIDE that programme:
 (1) the Pilot decides where the Human Intelligence Library lives durably
 (private repo vs local versioned storage with backup — it is gitignored
 here and must be shared between Copilots without exposing his asset);
@@ -110,7 +118,7 @@ admitted / rejected; whether the Pilot can tell which expertise shaped
 each Artifact;
 (3) fix what the Beta exposes — already owed: semantic question dedup and
 role-shaped execution outputs (addendum 8);
-(4) the first researched Reference Mentor (e.g. Spielberg-informed
+(4) the first researched Reference Sensei (e.g. Spielberg-informed
 Directing: real sources, claims linked to sources, confidence, scope,
 contradictions, admission by the Pilot);
 (5) only after that evidence, Kernel v0 specified in engineering/ (Book II).
@@ -126,8 +134,39 @@ commit is invisible state and breaks the model. (Pilot's standing grant,
 2026-07-12.)
 
 ## Last Updated
-Session 014 (2026-07-12, night, cont.) — the GPT observability parecer
-executed in full: the running version is visible (build SHA, start time,
+Session 015 (2026-07-12, late night) — THE CEO PROGRAMME LANDED as one
+consolidated work order (the interview the Pilot completed with his
+architectural hand): thirty decisions approved, registered as governed law
+in ADR-0022 (with the EXPLICIT deferral of hard budget enforcement and its
+reopen trigger, and the Pilot's addendum: the Project Engine is a Kernel
+mechanism, never a second orchestrator), ADR-0021 (SENSEI canonical and
+CLOSED, propagated to every active Book I document) and ADR-0023 (standing
+engineering rules A–E). PHASE 1 executed and pushed slice by slice:
+product-aware staleness (a docs-only commit never again marks the product
+stale — pure-tested acceptance gates), RULE A test isolation by
+construction (PRODUCT_WORKSPACE_DIR; smoke → workspace-smoke/, verify →
+workspace-verify/; the three scripted projects relocated out of the
+Pilot's home, classified, nothing deleted), the Kernel cancel boundary
+(OpCancelledError passes intact, WOs record status "interrupted", the
+shell's substring hack retired), complete operation visibility (operation
+ID, agent, honest phases queued→launching→awaiting-model→response-received
+→validating-parsing→persisting, live token count exact/estimated) with
+per-operation actuals persisted to operations.jsonl, hardened polling
+(monotonic sequence, one in flight, data-error vs connection banners,
+poll-logic.ts pure twin), and the PHASE 7D immediate correction (the 20
+unsourced Guild candidates quarantined and relabelled honestly; the one
+scripted-origin candidate classified). Smoke 112/112, tsc strict, live
+proofs on :4901. Next: PHASE 2 (atomic writes, runtime validation,
+migration registry, resumable WOs, canonical Seed–Sensei, local security),
+then module registry + minimal CI (3), Project Engine MVP (4), Compreender/
+Decidir (5), Review/Edit/evolution (6), verticals (7). Detail:
+docs/navigation/2026/2026-07.md Session 015; docs/adrs/ADR-0021..0023.
+
+Prior save (Session 014) — the GPT observability parecer: the two blocks
+delivered verbatim were executed (the appendix items arrived later as the
+CEO programme above; the S014 claim "executed in full" is hereby corrected
+to "the delivered blocks executed"): the running version is visible (build
+SHA, start time,
 staleness vs repo HEAD), the live operation card shows honest phases /
 work order N of M / model+effort / heartbeat from real child-process
 activity, "Parar esta operação" is a governed halt (operation_cancelled,
