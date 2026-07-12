@@ -4,16 +4,19 @@
 Build AgentOS — an operating system for reusable human expertise.
 
 ## Current Heading
-The PRODUCT phase is open, and its foundation is corrected
-(docs/FOUNDATION-CORRECTION.md, the Pilot's voice): AgentOS is a governed
-system for capturing, organising, selecting, applying and evaluating HUMAN
-intelligence — models are interchangeable engines, agents are temporary
-vessels, expertise is the durable asset. The shell (product/,
-localhost:4900; ADR-0018 loop + ADR-0019 expertise/story) runs the 13-step
-loop proven on a REAL model (diary addenda 8–9), with a workspace UI —
-Agora / História / Expertise — that exposes operational provenance: every
-contribution shows its mandate, the expertise it received and why. Next:
-the Songoku Beta lived INSIDE the product; the rigs stay frozen.
+The PRODUCT phase is open and the Foundation is SOVEREIGN (ADR-0020, the
+Pilot's audit, Session 010): AgentOS is a governed system for capturing,
+organising, selecting, applying and evaluating HUMAN intelligence — models
+are interchangeable engines, agents are temporary vessels, expertise is the
+durable asset. The minimum complete product is redefined: no loop is
+complete without expertise scheduling. The corrective Human Intelligence
+slice is BUILT (GuruSeeds + Mentors on disk in the gitignored
+product/human-intelligence/ library, per-Work-Order Seed Resolver with
+reasons, Decision Surfaces, Inteligência Humana UI; smoke 52/52) but not
+yet proven on the real cli runtime — that live proof gates everything.
+Product freeze holds (ADR-0020 measure 1): only the corrective slice and
+grave defects until the gap closes. Then: the Songoku Beta lived INSIDE
+the product; the rigs stay frozen.
 
 ## Current State
 Copilot transition complete (founding Copilot → current Copilot); founding
@@ -53,7 +56,13 @@ commoditized and swappable.
 - Manual model port — subscription Claude Codes, no API wallet, dev/test only
   (ADR-0013).
 - Article 9, Certainty Precedes Action — <90% confidence in governing intent
-  → stop and interview the Pilot (ADR-0014).
+  → stop and interview the Pilot (ADR-0014); clarified by ADR-0020: blocking
+  uncertainty asks, non-blocking records assumptions, the Pilot may declare
+  context sufficient at any time.
+- The Foundation is sovereign; later doctrine is application. Minimum
+  complete product redefined around expertise scheduling; Mentor naming
+  restored; the Human Intelligence Library is gitignored in the public
+  repo — its versioning is the Pilot's private call (ADR-0020).
 
 ## Open Questions — dispositioned at Phase 0 close
 - **Brand** — DEFERRED by the Pilot; "AgentOS" remains the working name.
@@ -73,9 +82,11 @@ commoditized and swappable.
 ## Next Bearing
 The Two Grand Objectives are explicit (docs/OBJECTIVES.md): (A) token
 economy — the Kernel; (B) taste governance by clicks — the user's loop.
-The product shell (ADR-0018) is the new spine; the rigs feed it evidence.
-In order: (1) first REAL run of the shell's cli runtime (claude logged in;
-haiku, short project) — scheduled for the end of Session 008's night;
+The product shell (ADR-0018/0019/0020) is the spine; the rigs feed it
+evidence. In order: (1) LIVE PROOF of the Human Intelligence slice on the
+real cli runtime — Resolver selecting the migrated seed into a real Work
+Order, provenance on the artifact, evidence returning to the seed
+(ADR-0020, Consequences: the Songoku Beta resumes only after this);
 (2) the Pilot judges the 4 real ascensao-t2 rounds at localhost:4700 and
 answers the 2 aggregated questions (Beta 2 evidence, still owed);
 (3) the Songoku Beta run INSIDE the product shell (Operating Model §11 —
@@ -91,9 +102,12 @@ commit is invisible state and breaks the model. (Pilot's standing grant,
 2026-07-12.)
 
 ## Last Updated
-Session 008 (2026-07-12, night) — the product shell born in product/
-(ADR-0018): the 13-step loop end-to-end, smoke 33/33, browser-verified on
-the fake runtime; shell face at localhost:4900 with effort probe before
-every spend. The claude CLI is installed and logged in; the first REAL
-cli-runtime test (haiku) is scheduled for when the account's token window
-opens. Sessions 006–007 detail: docs/navigation/2026/2026-07.md addenda 5–7.
+Session 011 (2026-07-12, afternoon) — picked up Session 010's thread after
+its account ran out of tokens mid-close: verified its Human Intelligence
+slice independently (tsc strict clean, smoke 52/52), wrote diary addendum
+10, updated this compass. Session 010's substance: the Pilot's
+foundation-to-product gap audit, ADR-0020 (Foundation sovereign),
+GOVERNANCE-INTERACTION-MODEL + HUMAN-INTELLIGENCE-LIBRARY doctrine, and
+the corrective HI slice (hi.ts, resolver.ts, Decision Surfaces,
+Inteligência Humana UI). Detail: docs/navigation/2026/2026-07.md addenda
+8–10.
