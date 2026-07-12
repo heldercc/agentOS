@@ -10,13 +10,19 @@ organising, selecting, applying and evaluating HUMAN intelligence — models
 are interchangeable engines, agents are temporary vessels, expertise is the
 durable asset. The minimum complete product is redefined: no loop is
 complete without expertise scheduling. The corrective Human Intelligence
-slice is BUILT and PROVEN LIVE on the real cli runtime (Session 011,
-diary addendum 11): GuruSeeds + Mentors on disk in the gitignored
-product/human-intelligence/ library, per-Work-Order Seed Resolver with
-reasons, Decision Surfaces, artifact provenance sidecars, evidence
-returning to the seed, the "Chega" sufficiency act, Inteligência Humana
-UI; smoke 64/64. The ADR-0020 gate is satisfied — the Songoku Beta run
-INSIDE the product is unblocked; the rigs stay frozen.
+slice is BUILT and its MECHANICS are proven on the real cli runtime
+(Session 011, diary addendum 11; declaration corrected in addendum 12):
+GuruSeeds + Mentors on disk in the gitignored product/human-intelligence/
+library, per-Work-Order Seed Resolver with reasons, Decision Surfaces,
+artifact provenance sidecars, evidence returning to the seed, the "Chega"
+sufficiency act, Inteligência Humana UI. Provenance is now IMMUTABLE
+(Session 012, the Pilot's + GPT's parecer): recoverable version history
+for Seeds and Mentors, telemetry outside the versioned content, verifiable
+hashes on artifact/manifest/seed; smoke 72/72. HONEST LIMIT: the live
+proof's user was the Copilot under the standing test directive, and the
+"Chega" act has passed only on the FakeRuntime — the HUMAN proof, with the
+Pilot governing, is still owed and belongs to the first true Beta. The
+rigs stay frozen.
 
 ## Current State
 Copilot transition complete (founding Copilot → current Copilot); founding
@@ -83,16 +89,28 @@ commoditized and swappable.
 The Two Grand Objectives are explicit (docs/OBJECTIVES.md): (A) token
 economy — the Kernel; (B) taste governance by clicks — the user's loop.
 The product shell (ADR-0018/0019/0020) is the spine; the rigs feed it
-evidence. The HI-slice live proof is DONE (Session 011). In order now:
-(1) the Songoku Beta run INSIDE the product shell (Operating Model §11 —
-nothing pre-authored; the Pilot initiates it);
-(2) the Pilot judges the 4 real ascensao-t2 rounds at localhost:4700 and
-answers the 2 aggregated questions (Beta 2 evidence, still owed);
-(3) remaining product learnings from addendum 8: semantic question dedup
-and role-shaped execution outputs;
-(4) what kernel.ts proves out gets specified in
-engineering/ as Kernel v0 (Book II). Pilot's earlier flags remain:
-Constitution polish pass; SavePoint structural criteria when indexing begins.
+evidence. Immutable provenance is DONE (Session 012). The order set by the
+Pilot's + GPT's parecer (2026-07-12):
+(1) the Pilot decides where the Human Intelligence Library lives durably
+(private repo vs local versioned storage with backup — it is gitignored
+here and must be shared between Copilots without exposing his asset);
+(2) the FIRST TRUE BETA, governed by the Pilot inside the App: the anime
+fight with ORIGINAL characters (Aran — no borrowed IP), nothing
+pre-authored, the Pilot initiates; the Copilot operates below the
+authority line. Measure during it: questions asked vs avoided; context
+reused and tokens saved vs full reload; genuinely distinct options; ease
+of choosing/refining; time per approved decision; seeds candidate /
+admitted / rejected; whether the Pilot can tell which expertise shaped
+each Artifact;
+(3) fix what the Beta exposes — already owed: semantic question dedup and
+role-shaped execution outputs (addendum 8);
+(4) the first researched Reference Mentor (e.g. Spielberg-informed
+Directing: real sources, claims linked to sources, confidence, scope,
+contradictions, admission by the Pilot);
+(5) only after that evidence, Kernel v0 specified in engineering/ (Book II).
+Still pending: the Pilot judges the 4 real ascensao-t2 rounds at
+localhost:4700 + the 2 aggregated questions; Constitution polish pass;
+SavePoint structural criteria when indexing begins.
 
 ## Sync Doctrine
 The Pilot builds multi-agent with GitHub as the shared drive: `origin/main`
@@ -102,11 +120,14 @@ commit is invisible state and breaks the model. (Pilot's standing grant,
 2026-07-12.)
 
 ## Last Updated
-Session 011 (2026-07-12, afternoon) — picked up Session 010's thread,
-verified its work (addendum 10), then completed and PROVED the corrective
-slice live on the real cli runtime (addendum 11): artifact provenance
-sidecars, evidence returning to the seed, and the "Chega — constrói com o
-que tens" sufficiency act (ADR-0020 §3). Smoke 64/64, tsc strict. The
-ADR-0020 gate is satisfied; the Songoku Beta inside the product is
-unblocked and belongs to the Pilot. Detail: docs/navigation/2026/2026-07.md
-addenda 8–11.
+Session 012 (2026-07-12, evening) — executed the Pilot's + GPT's parecer
+on Session 011: (a) provenance made IMMUTABLE — recoverable version
+history for Seeds (seeds/<slug>/versions/) and Mentors (mentors/history/),
+telemetry moved out of the versioned content into append-only sidecars
+(applications.jsonl, evidence.jsonl hydrated at read), content hashes on
+every record, artifact sidecars now carry artifactSha256 + manifestSha256 +
+each seed's contentHash, real library migrated (2 records); (b) the proof
+declaration CORRECTED honestly — mechanics proven on a real model, but the
+user was the Copilot and "Chega" passed only on the FakeRuntime; the human
+proof belongs to the Pilot's first true Beta. Smoke 72/72, tsc strict.
+Detail: docs/navigation/2026/2026-07.md addenda 8–12.
