@@ -21,10 +21,13 @@ import { admitCandidate, draftCandidates, foldStats } from "../distill.js";
 import { approvalRateByRound, decisionProgress } from "../metrics.js";
 import { FakeModel } from "../model.js";
 import { loadLearned, loadProject } from "../project.js";
-import { DATA_DIR, LEARNED_DIR, REPO_ROOT, RUNS_DIR } from "../paths.js";
+import { PROJECTS_DIR, REPO_ROOT, RUNS_DIR } from "../paths.js";
 import { roundDir, runRound } from "../propose.js";
 import { abs, readJson } from "../stores.js";
 import type { ContextManifest, EvidenceEvent, RoundMapping } from "../types.js";
+
+const PROJECT = "first-cargo";
+const projRuns = abs(RUNS_DIR, PROJECT);
 
 function assert(cond: boolean, msg: string): void {
   if (!cond) {
@@ -53,26 +56,26 @@ function click(
     action,
     scripted: true,
   };
-  appendEvent(RUNS_DIR, e);
+  appendEvent(projRuns, e);
 }
 
 async function main(): Promise<void> {
   const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
   const session = `smoke-${stamp}`;
-  const sandboxLearned = abs(RUNS_DIR, session, "learned-sandbox");
+  const sandboxLearned = abs(projRuns, session, "learned-sandbox");
   const port = new FakeModel();
 
   console.log(`smoke session ${session}`);
-  const project = loadProject(REPO_ROOT, DATA_DIR, sandboxLearned);
+  const project = loadProject(REPO_ROOT, PROJECTS_DIR, PROJECT, sandboxLearned);
   const [d1, d2, d3] = project.decisions;
   if (!d1 || !d2 || !d3) throw new Error("need at least 3 decisions in data/");
 
   // 1 — a round produces the full audit trail.
   const m1 = await runRound({
-    repoRoot: REPO_ROOT, runsDir: RUNS_DIR, session, project,
+    repoRoot: REPO_ROOT, runsDir: projRuns, session, project,
     decision: d1, round: 1, port, model: "fake", scripted: true,
   });
-  const d1dir = roundDir(RUNS_DIR, session, d1.id, 1);
+  const d1dir = roundDir(projRuns, session, d1.id, 1);
   const letters = Object.keys(m1.letters).sort();
   assert(
     letters.length === project.approaches.length,
@@ -101,7 +104,7 @@ async function main(): Promise<void> {
   click(session, d1.id, 1, m1, w1, "select");
 
   const m2 = await runRound({
-    repoRoot: REPO_ROOT, runsDir: RUNS_DIR, session, project,
+    repoRoot: REPO_ROOT, runsDir: projRuns, session, project,
     decision: d2, round: 1, port, model: "fake", scripted: true,
   });
   const w2 = letterOf(m2);
@@ -109,7 +112,7 @@ async function main(): Promise<void> {
     click(session, d2.id, 1, m2, l, l === w2 ? "approve" : "reject");
   click(session, d2.id, 1, m2, w2, "select");
 
-  const events = readSessionEvents(RUNS_DIR, session);
+  const events = readSessionEvents(projRuns, session);
   const stats = foldStats(project.approaches, events);
   const tstats = stats.find((s) => s.approachId === target.id);
   assert(
@@ -128,7 +131,7 @@ async function main(): Promise<void> {
   const cand = candidates[0];
   if (!cand) throw new Error("unreachable");
   admitCandidate(sandboxLearned, cand);
-  appendEvent(RUNS_DIR, {
+  appendEvent(projRuns, {
     ts: new Date().toISOString(), session, decisionId: "-", round: 0,
     candidateId: cand.id, action: "admit_seed", scripted: true,
   });
@@ -141,12 +144,12 @@ async function main(): Promise<void> {
   }
   assert(threw, "second admission of the same seed throws (write-once)");
   assert(
-    draftCandidates(project.approaches, readSessionEvents(RUNS_DIR, session)).length === 0,
+    draftCandidates(project.approaches, readSessionEvents(projRuns, session)).length === 0,
     "admitted candidate leaves the tray",
   );
 
   // 4b — ADR-0016 §1–2: the present event carries the full choice set.
-  const present = readSessionEvents(RUNS_DIR, session).filter((e) => e.action === "present");
+  const present = readSessionEvents(projRuns, session).filter((e) => e.action === "present");
   const pres1 = present.find((e) => e.decisionId === d1.id);
   assert(
     pres1 !== undefined &&
@@ -158,9 +161,9 @@ async function main(): Promise<void> {
 
   // 4c — ADR-0016 §3: a blind anchor re-judges a closed round; verdicts are
   // invisible to learning and feed only the Consistency number.
-  const statsBefore = foldStats(project.approaches, readSessionEvents(RUNS_DIR, session));
-  const anchor = createAnchor(RUNS_DIR, session, d1.id, 1);
-  const bodies = anchorBodies(RUNS_DIR, anchor);
+  const statsBefore = foldStats(project.approaches, readSessionEvents(projRuns, session));
+  const anchor = createAnchor(projRuns, session, d1.id, 1);
+  const bodies = anchorBodies(projRuns, anchor);
   assert(
     bodies.length === project.approaches.length && bodies.every((b) => b.body.length > 0),
     "anchor re-presents the closed round's bodies, reshuffled",
@@ -170,21 +173,21 @@ async function main(): Promise<void> {
   const winDisplay = Object.entries(anchor.display).find(([, o]) => o === w1)?.[0];
   if (!winDisplay) throw new Error("anchor lost the original winner");
   for (const b of bodies) {
-    const { approachId } = resolveAnchorClick(RUNS_DIR, anchor, b.letter);
-    appendEvent(RUNS_DIR, {
+    const { approachId } = resolveAnchorClick(projRuns, anchor, b.letter);
+    appendEvent(projRuns, {
       ts: new Date().toISOString(), session, decisionId: d1.id, round: 1,
       proposalId: b.letter, approachId,
       action: b.letter === winDisplay ? "approve" : "reject",
       scripted: true, anchor: true, anchorId: anchor.anchorId,
     });
   }
-  const sel = resolveAnchorClick(RUNS_DIR, anchor, winDisplay);
-  appendEvent(RUNS_DIR, {
+  const sel = resolveAnchorClick(projRuns, anchor, winDisplay);
+  appendEvent(projRuns, {
     ts: new Date().toISOString(), session, decisionId: d1.id, round: 1,
     proposalId: winDisplay, approachId: sel.approachId,
     action: "select", scripted: true, anchor: true, anchorId: anchor.anchorId,
   });
-  const eventsWithAnchor = readSessionEvents(RUNS_DIR, session);
+  const eventsWithAnchor = readSessionEvents(projRuns, session);
   const statsAfter = foldStats(project.approaches, eventsWithAnchor);
   assert(
     JSON.stringify(statsBefore) === JSON.stringify(statsAfter),
@@ -197,19 +200,19 @@ async function main(): Promise<void> {
   );
 
   // 4d — the owner's note enters the next round's context (pilot_note channel).
-  appendEvent(RUNS_DIR, {
+  appendEvent(projRuns, {
     ts: new Date().toISOString(), session, decisionId: d3.id, round: 0,
     action: "pilot_note", scripted: true, note: "owner direction for the next round",
   });
 
   // 5 — the loop closes: next round's context enumerates the learned seed.
-  const project2 = loadProject(REPO_ROOT, DATA_DIR, sandboxLearned);
+  const project2 = loadProject(REPO_ROOT, PROJECTS_DIR, PROJECT, sandboxLearned);
   assert(project2.learned.length === 1, "project reload sees the learned seed");
   await runRound({
-    repoRoot: REPO_ROOT, runsDir: RUNS_DIR, session, project: project2,
+    repoRoot: REPO_ROOT, runsDir: projRuns, session, project: project2,
     decision: d3, round: 1, port, model: "fake", scripted: true,
   });
-  const d3dir = roundDir(RUNS_DIR, session, d3.id, 1);
+  const d3dir = roundDir(projRuns, session, d3.id, 1);
   const anyLetter = readdirSync(d3dir).find((n) => n.length === 1);
   const manifest = readJson<ContextManifest>(abs(d3dir, anyLetter ?? "A", "manifest.json"));
   assert(
@@ -224,21 +227,24 @@ async function main(): Promise<void> {
   );
 
   // 6 — metrics.
-  const prog = decisionProgress(project.decisions, readSessionEvents(RUNS_DIR, session));
+  const prog = decisionProgress(project.decisions, readSessionEvents(projRuns, session));
   const p1 = prog.find((p) => p.decisionId === d1.id);
   assert(
     p1 !== undefined && p1.closed && p1.roundsToSelection === 1,
     "metrics: decision 1 closed in round 1",
   );
-  const rates = approvalRateByRound(readSessionEvents(RUNS_DIR, session));
+  const rates = approvalRateByRound(readSessionEvents(projRuns, session));
   assert(rates.length >= 1 && (rates[0]?.proposals ?? 0) > 0, "metrics: approval rate by round computed");
 
   // The real learning path must never see any of this.
-  assert(loadLearned(REPO_ROOT, LEARNED_DIR).length === 0 || true, "real learned store untouched by smoke");
+  assert(
+    loadLearned(REPO_ROOT, abs(PROJECTS_DIR, PROJECT, "learned")).length === 0,
+    "real learned store untouched by smoke",
+  );
 
   // Smoke evidence is disposable — keep the tree clean unless asked to keep it.
   if (!process.argv.includes("--keep")) {
-    rmSync(abs(RUNS_DIR, session), { recursive: true, force: true });
+    rmSync(abs(projRuns, session), { recursive: true, force: true });
     console.log("  (smoke run removed; pass --keep to keep it as evidence)");
   }
   console.log("SMOKE OK — the governance loop holds end-to-end on the fake model.");

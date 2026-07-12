@@ -1,12 +1,10 @@
-// The governance dashboard (ADR-0015) — Grand Objective B's surface: the
-// owner iterates real work with clicks. One process serves everything: it
-// fans a decision into blind proposals (one per approach, sealed mapping),
-// records every click as an evidence event, shows the tray of candidate seeds
-// the distiller drafted from selection statistics, and lets the owner admit
-// or discard them. Admitted seeds enter every later proposal's context — the
-// manifests prove it. Judging is pointwise FIRST (approve/reject each
-// proposal in isolation), selection only afterwards and only among approved:
-// the comparison protocol must not fabricate the winner.
+// The governance dashboard (ADR-0015 + ADR-0016) — Grand Objective B's
+// surface: the owner iterates real work with clicks, across several projects.
+// Everything is derived from the audit trail on disk; the dashboard only
+// fans decisions into blind proposals, records clicks as evidence events,
+// shows the distiller's tray, runs blind anchors, and carries the owner's
+// notes into the next round's context. Judging is pointwise FIRST, enforced
+// server-side.
 //
 // Usage: tsx src/cli/dashboard.ts [--port 4700]
 
@@ -15,15 +13,23 @@ import { existsSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { resolve } from "node:path";
 
+import {
+  anchorBodies,
+  anchorableRounds,
+  consistency,
+  createAnchor,
+  loadAnchor,
+  resolveAnchorClick,
+} from "../anchor.js";
 import { appendEvent, readAllEvents, readSessionEvents } from "../evidence.js";
 import { admitCandidate, draftCandidates } from "../distill.js";
 import { approvalRateByRound, decisionProgress } from "../metrics.js";
 import { resolveModel } from "../model.js";
-import { loadProject } from "../project.js";
-import { DATA_DIR, LEARNED_DIR, MAILBOX_DIR, REPO_ROOT, RUNS_DIR } from "../paths.js";
+import { listProjects, loadProject } from "../project.js";
+import { MAILBOX_DIR, PROJECTS_DIR, REPO_ROOT, RUNS_DIR } from "../paths.js";
 import { roundDir, runRound } from "../propose.js";
 import { abs, readJson, readText } from "../stores.js";
-import type { EvidenceEvent, RoundMapping } from "../types.js";
+import type { RoundMapping } from "../types.js";
 
 const DEFAULT_PORT = 4700;
 
@@ -32,10 +38,19 @@ function todaySession(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+function runsDirFor(projectId: string): string {
+  return abs(RUNS_DIR, projectId);
+}
+
+function getProject(projectId: string) {
+  return loadProject(REPO_ROOT, PROJECTS_DIR, projectId);
+}
+
 // ---------------------------------------------------------------------------
 // Round generation — one at a time, driven in-process.
 
 interface RoundBusy {
+  projectId: string;
   decisionId: string;
   round: number;
   model: string;
@@ -45,8 +60,8 @@ interface RoundBusy {
 
 let busy: RoundBusy | null = null;
 
-function latestRound(session: string, decisionId: string): number {
-  const dir = abs(RUNS_DIR, session, decisionId);
+function latestRound(projectId: string, session: string, decisionId: string): number {
+  const dir = abs(runsDirFor(projectId), session, decisionId);
   if (!existsSync(dir)) return 0;
   return readdirSync(dir)
     .map((n) => /^round-(\d+)$/.exec(n))
@@ -54,13 +69,13 @@ function latestRound(session: string, decisionId: string): number {
     .reduce((max, m) => Math.max(max, Number(m[1])), 0);
 }
 
-async function startRound(decisionId: string, model: string): Promise<void> {
+async function startRound(projectId: string, decisionId: string, model: string): Promise<void> {
   const session = todaySession();
-  const project = loadProject(REPO_ROOT, DATA_DIR, LEARNED_DIR);
+  const project = getProject(projectId);
   const decision = project.decisions.find((d) => d.id === decisionId);
   if (!decision) throw new Error(`unknown decision ${decisionId}`);
-  const round = latestRound(session, decisionId) + 1;
-  const state: RoundBusy = { decisionId, round, model, log: [] };
+  const round = latestRound(projectId, session, decisionId) + 1;
+  const state: RoundBusy = { projectId, decisionId, round, model, log: [] };
   busy = state;
   try {
     if (model === "manual") startWorker((m) => state.log.push(m));
@@ -68,7 +83,7 @@ async function startRound(decisionId: string, model: string): Promise<void> {
     state.log.push(`round ${round} for ${decisionId} · model ${modelName}`);
     await runRound({
       repoRoot: REPO_ROOT,
-      runsDir: RUNS_DIR,
+      runsDir: runsDirFor(projectId),
       session,
       project,
       decision,
@@ -87,8 +102,10 @@ async function startRound(decisionId: string, model: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Mailbox worker (ADR-0013) — same bridge as the beta-coding dashboard:
-// spawns one CLI worker per job on the owner's subscription, no API wallet.
+// Mailbox worker (ADR-0013) — spawns one CLI worker per job on the owner's
+// subscription. If the CLI is not logged in, jobs stay in the outbox where a
+// human-in-the-middle (any Claude session) can answer them by writing the
+// matching file into mailbox/inbox/.
 
 interface WorkerState {
   active: boolean;
@@ -149,7 +166,8 @@ function startWorker(log: (m: string) => void): void {
         worker.lastError =
           `job ${job} failed (attempt ${n}/${MAX_JOB_ATTEMPTS}, exit ${code}): ` +
           `${errOut.trim().slice(0, 300) || "empty output"}. ` +
-          `If the CLI is not logged in, run "claude" once in a terminal.`;
+          `If the CLI is not logged in, run "claude" once in a terminal — ` +
+          `or a human-in-the-middle can answer the outbox files directly.`;
       }
       worker.current = null;
     });
@@ -160,13 +178,14 @@ function startWorker(log: (m: string) => void): void {
 }
 
 // ---------------------------------------------------------------------------
-// Derived views — everything from the audit trail on disk, nothing in memory.
+// Derived views.
 
 interface OptionView {
   letter: string;
   body: string;
   verdict: "approve" | "reject" | "";
   selected: boolean;
+  asksInterview: boolean;
 }
 
 interface JudgeView {
@@ -178,45 +197,51 @@ interface JudgeView {
   allJudged: boolean;
   approvedLetters: string[];
   closed: boolean;
-  /** Revealed only after the decision closes. */
   reveal: Record<string, string> | null;
+  notes: string[];
 }
 
-function judgeView(session: string, decisionId: string): JudgeView | null {
-  const project = loadProject(REPO_ROOT, DATA_DIR, LEARNED_DIR);
+const INTERVIEW_MARK = "Perguntas ao Pilot";
+
+function judgeView(projectId: string, session: string, decisionId: string): JudgeView | null {
+  const project = getProject(projectId);
+  const runsDir = runsDirFor(projectId);
   const decision = project.decisions.find((d) => d.id === decisionId);
   if (!decision) return null;
-  const round = latestRound(session, decisionId);
+  const round = latestRound(projectId, session, decisionId);
   if (round === 0) return null;
-  const dir = roundDir(RUNS_DIR, session, decisionId, round);
+  const dir = roundDir(runsDir, session, decisionId, round);
+  if (!existsSync(abs(dir, "mapping.sealed.json"))) return null;
   const mapping = readJson<RoundMapping>(abs(dir, "mapping.sealed.json"));
-  const events = readSessionEvents(RUNS_DIR, session).filter(
-    (e) => e.decisionId === decisionId && e.round === round,
+  const events = readSessionEvents(runsDir, session).filter(
+    (e) => e.decisionId === decisionId && !e.anchor,
   );
+  const roundEvents = events.filter((e) => e.round === round);
   const verdictOf = (letter: string): "approve" | "reject" | "" => {
     let v: "approve" | "reject" | "" = "";
-    for (const e of events) {
+    for (const e of roundEvents) {
       if (e.proposalId === letter && (e.action === "approve" || e.action === "reject")) {
-        v = e.action; // last click wins until selection closes the round
+        v = e.action;
       }
     }
     return v;
   };
-  const selectedLetter =
-    events.find((e) => e.action === "select")?.proposalId ?? null;
+  const selectedLetter = roundEvents.find((e) => e.action === "select")?.proposalId ?? null;
   const options: OptionView[] = Object.keys(mapping.letters)
     .sort()
     .filter((l) => existsSync(abs(dir, l, "proposal.md")))
-    .map((l) => ({
-      letter: l,
-      body: readText(abs(dir, l, "proposal.md")),
-      verdict: verdictOf(l),
-      selected: selectedLetter === l,
-    }));
+    .map((l) => {
+      const body = readText(abs(dir, l, "proposal.md"));
+      return {
+        letter: l,
+        body,
+        verdict: verdictOf(l),
+        selected: selectedLetter === l,
+        asksInterview: body.includes(INTERVIEW_MARK),
+      };
+    });
   const allJudged = options.length > 0 && options.every((o) => o.verdict !== "");
-  const closed = readSessionEvents(RUNS_DIR, session).some(
-    (e) => e.decisionId === decisionId && e.action === "select",
-  );
+  const closed = events.some((e) => e.action === "select");
   return {
     decisionId,
     title: decision.title,
@@ -227,19 +252,22 @@ function judgeView(session: string, decisionId: string): JudgeView | null {
     approvedLetters: options.filter((o) => o.verdict === "approve").map((o) => o.letter),
     closed,
     reveal: closed ? mapping.letters : null,
+    notes: events.filter((e) => e.action === "pilot_note" && e.note).map((e) => e.note ?? ""),
   };
 }
 
-function stateView(): unknown {
+function stateView(projectId: string): unknown {
   const session = todaySession();
-  const project = loadProject(REPO_ROOT, DATA_DIR, LEARNED_DIR);
-  const sessionEvents = readSessionEvents(RUNS_DIR, session).filter((e) => !e.scripted);
-  const allEvents = readAllEvents(RUNS_DIR);
+  const project = getProject(projectId);
+  const runsDir = runsDirFor(projectId);
+  const sessionEvents = readSessionEvents(runsDir, session).filter((e) => !e.scripted);
+  const allEvents = readAllEvents(runsDir);
   const progress = decisionProgress(project.decisions, sessionEvents);
   const decisions = project.decisions.map((d) => {
     const p = progress.find((x) => x.decisionId === d.id);
-    const rounds = latestRound(session, d.id);
-    const jv = rounds > 0 ? judgeView(session, d.id) : null;
+    const rounds = latestRound(projectId, session, d.id);
+    const jv = rounds > 0 ? judgeView(projectId, session, d.id) : null;
+    const asksInterview = jv?.options.some((o) => o.asksInterview && !jv.closed) ?? false;
     return {
       id: d.id,
       title: d.title,
@@ -248,13 +276,17 @@ function stateView(): unknown {
       closed: p?.closed ?? false,
       judgeable: jv !== null && !jv.closed,
       allJudged: jv?.allJudged ?? false,
+      asksInterview,
     };
   });
+  const cons = consistency(allEvents.concat(readSessionEvents(runsDir, session)));
   return {
     session,
+    project: { id: project.id, name: project.name },
+    projects: listProjects(PROJECTS_DIR),
     learned: project.learned.map((s) => s.id),
     decisions,
-    busy,
+    busy: busy && busy.projectId === projectId ? busy : null,
     worker: worker.active
       ? { cmd: worker.cmd, current: worker.current, served: worker.served, lastError: worker.lastError }
       : null,
@@ -267,6 +299,8 @@ function stateView(): unknown {
     metrics: {
       byRound: approvalRateByRound(allEvents),
       progress,
+      consistency: cons,
+      anchorable: anchorableRounds(runsDir, session).length,
     },
   };
 }
@@ -291,30 +325,6 @@ function sendJson(res: ServerResponse, status: number, value: unknown): void {
   res.end(JSON.stringify(value));
 }
 
-function clickEvent(
-  session: string,
-  decisionId: string,
-  round: number,
-  letter: string,
-  action: "approve" | "reject" | "select",
-): void {
-  const dir = roundDir(RUNS_DIR, session, decisionId, round);
-  const mapping = readJson<RoundMapping>(abs(dir, "mapping.sealed.json"));
-  const approachId = mapping.letters[letter];
-  if (!approachId) throw new Error(`unknown option ${letter}`);
-  const e: EvidenceEvent = {
-    ts: new Date().toISOString(),
-    session,
-    decisionId,
-    round,
-    proposalId: letter,
-    approachId,
-    action,
-    scripted: false,
-  };
-  appendEvent(RUNS_DIR, e);
-}
-
 async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const url = new URL(req.url ?? "/", "http://localhost");
   const path = url.pathname;
@@ -326,35 +336,55 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     return;
   }
 
+  const projects = listProjects(PROJECTS_DIR);
+  const fallback = projects[0]?.id ?? "";
+  const qProject = url.searchParams.get("project") ?? "";
+
   if (req.method === "GET" && path === "/api/state") {
-    sendJson(res, 200, stateView());
+    const id = projects.some((p) => p.id === qProject) ? qProject : fallback;
+    if (!id) {
+      sendJson(res, 500, { error: "no projects under data/projects/" });
+      return;
+    }
+    sendJson(res, 200, stateView(id));
     return;
   }
+
+  // Everything below takes { project } in the body or query.
+  const body =
+    req.method === "POST"
+      ? (JSON.parse((await readBody(req)) || "{}") as Record<string, unknown>)
+      : {};
+  const projectId = String(body["project"] ?? qProject ?? fallback);
+  if (!projects.some((p) => p.id === projectId)) {
+    sendJson(res, 400, { error: `unknown project "${projectId}"` });
+    return;
+  }
+  const runsDir = runsDirFor(projectId);
 
   if (req.method === "POST" && path === "/api/round") {
     if (busy && !busy.error) {
       sendJson(res, 409, { error: "a round is already being generated" });
       return;
     }
-    const body = JSON.parse((await readBody(req)) || "{}") as {
-      decisionId?: string;
-      model?: string;
-    };
-    const decisionId = body.decisionId ?? "";
-    const jv = latestRound(session, decisionId) > 0 ? judgeView(session, decisionId) : null;
+    const decisionId = String(body["decisionId"] ?? "");
+    const jv =
+      latestRound(projectId, session, decisionId) > 0
+        ? judgeView(projectId, session, decisionId)
+        : null;
     if (jv && !jv.closed && !jv.allJudged) {
       sendJson(res, 409, { error: "judge the current round before opening a new one" });
       return;
     }
-    const model = body.model === "manual" ? "manual" : "fake";
-    void startRound(decisionId, model);
+    const model = body["model"] === "manual" ? "manual" : "fake";
+    void startRound(projectId, decisionId, model);
     sendJson(res, 200, { ok: true });
     return;
   }
 
   if (req.method === "GET" && path === "/api/judge") {
     const decisionId = url.searchParams.get("decision") ?? "";
-    const jv = judgeView(session, decisionId);
+    const jv = judgeView(projectId, session, decisionId);
     if (!jv) {
       sendJson(res, 404, { error: "no round to judge for this decision" });
       return;
@@ -364,14 +394,11 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
   }
 
   if (req.method === "POST" && path === "/api/click") {
-    const body = JSON.parse((await readBody(req)) || "{}") as {
-      decisionId?: string;
-      round?: number;
-      letter?: string;
-      action?: string;
-    };
-    const { decisionId, round, letter, action } = body;
-    if (!decisionId || !round || !letter || !action) {
+    const decisionId = String(body["decisionId"] ?? "");
+    const round = Number(body["round"] ?? 0);
+    const letter = String(body["letter"] ?? "");
+    const action = String(body["action"] ?? "");
+    if (!decisionId || !round || !letter) {
       sendJson(res, 400, { error: "decisionId, round, letter, action are required" });
       return;
     }
@@ -379,14 +406,12 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       sendJson(res, 400, { error: "action must be approve, reject or select" });
       return;
     }
-    const jv = judgeView(session, decisionId);
+    const jv = judgeView(projectId, session, decisionId);
     if (!jv || jv.closed) {
       sendJson(res, 409, { error: "this decision is closed" });
       return;
     }
     if (action === "select") {
-      // Selection only after every option was judged in isolation, and only
-      // among approved options — pointwise before pairwise, enforced server-side.
       if (!jv.allJudged) {
         sendJson(res, 409, { error: "judge every option in isolation before selecting" });
         return;
@@ -396,30 +421,145 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
         return;
       }
     }
-    clickEvent(session, decisionId, round, letter, action);
+    const dir = roundDir(runsDir, session, decisionId, round);
+    const mapping = readJson<RoundMapping>(abs(dir, "mapping.sealed.json"));
+    const approachId = mapping.letters[letter];
+    if (!approachId) {
+      sendJson(res, 400, { error: `unknown option ${letter}` });
+      return;
+    }
+    appendEvent(runsDir, {
+      ts: new Date().toISOString(),
+      session,
+      decisionId,
+      round,
+      proposalId: letter,
+      approachId,
+      action,
+      scripted: false,
+    });
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  if (req.method === "POST" && path === "/api/note") {
+    const decisionId = String(body["decisionId"] ?? "");
+    const text = String(body["text"] ?? "").trim();
+    if (!decisionId || !text) {
+      sendJson(res, 400, { error: "decisionId and text are required" });
+      return;
+    }
+    appendEvent(runsDir, {
+      ts: new Date().toISOString(),
+      session,
+      decisionId,
+      round: 0,
+      action: "pilot_note",
+      scripted: false,
+      note: text.slice(0, 2000),
+    });
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  if (req.method === "POST" && path === "/api/anchor") {
+    const pool = anchorableRounds(runsDir, session);
+    if (pool.length === 0) {
+      sendJson(res, 409, { error: "no closed rounds to anchor yet" });
+      return;
+    }
+    const pick = pool[Math.floor(Math.random() * pool.length)];
+    if (!pick) {
+      sendJson(res, 500, { error: "anchor pick failed" });
+      return;
+    }
+    const mapping = createAnchor(runsDir, session, pick.decisionId, pick.round);
+    sendJson(res, 200, { anchorId: mapping.anchorId });
+    return;
+  }
+
+  if (req.method === "GET" && path === "/api/anchor") {
+    const anchorId = url.searchParams.get("id") ?? "";
+    const mapping = loadAnchor(runsDir, session, anchorId);
+    if (!mapping) {
+      sendJson(res, 404, { error: "unknown anchor" });
+      return;
+    }
+    const events = readSessionEvents(runsDir, session).filter(
+      (e) => e.anchor && e.anchorId === anchorId,
+    );
+    const verdictOf = (letter: string): string => {
+      let v = "";
+      for (const e of events) {
+        if (e.proposalId === letter && (e.action === "approve" || e.action === "reject")) {
+          v = e.action;
+        }
+      }
+      return v;
+    };
+    const selected = events.find((e) => e.action === "select")?.proposalId ?? null;
+    const bodies = anchorBodies(runsDir, mapping).map((b) => ({
+      ...b,
+      verdict: verdictOf(b.letter),
+      selected: selected === b.letter,
+    }));
+    const allJudged = bodies.every((b) => b.verdict !== "");
+    sendJson(res, 200, {
+      anchorId,
+      options: bodies,
+      allJudged,
+      approvedLetters: bodies.filter((b) => b.verdict === "approve").map((b) => b.letter),
+      done: selected !== null,
+    });
+    return;
+  }
+
+  if (req.method === "POST" && path === "/api/anchor-click") {
+    const anchorId = String(body["anchorId"] ?? "");
+    const letter = String(body["letter"] ?? "");
+    const action = String(body["action"] ?? "");
+    const mapping = loadAnchor(runsDir, session, anchorId);
+    if (!mapping || !letter) {
+      sendJson(res, 400, { error: "anchorId and letter are required" });
+      return;
+    }
+    if (action !== "approve" && action !== "reject" && action !== "select") {
+      sendJson(res, 400, { error: "action must be approve, reject or select" });
+      return;
+    }
+    const { approachId } = resolveAnchorClick(runsDir, mapping, letter);
+    appendEvent(runsDir, {
+      ts: new Date().toISOString(),
+      session,
+      decisionId: mapping.decisionId,
+      round: mapping.round,
+      proposalId: letter,
+      approachId,
+      action,
+      scripted: false,
+      anchor: true,
+      anchorId,
+    });
     sendJson(res, 200, { ok: true });
     return;
   }
 
   if (req.method === "POST" && path === "/api/tray") {
-    const body = JSON.parse((await readBody(req)) || "{}") as {
-      candidateId?: string;
-      action?: string;
-    };
-    const { candidateId, action } = body;
+    const candidateId = String(body["candidateId"] ?? "");
+    const action = String(body["action"] ?? "");
     if (!candidateId || (action !== "admit" && action !== "discard")) {
       sendJson(res, 400, { error: "candidateId and action (admit|discard) are required" });
       return;
     }
-    const project = loadProject(REPO_ROOT, DATA_DIR, LEARNED_DIR);
-    const candidates = draftCandidates(project.approaches, readAllEvents(RUNS_DIR));
+    const project = getProject(projectId);
+    const candidates = draftCandidates(project.approaches, readAllEvents(runsDir));
     const cand = candidates.find((c) => c.id === candidateId);
     if (!cand) {
       sendJson(res, 404, { error: "candidate not in the tray (already ruled on?)" });
       return;
     }
-    if (action === "admit") admitCandidate(LEARNED_DIR, cand);
-    appendEvent(RUNS_DIR, {
+    if (action === "admit") admitCandidate(project.learnedDir, cand);
+    appendEvent(runsDir, {
       ts: new Date().toISOString(),
       session,
       decisionId: "-",
@@ -444,120 +584,214 @@ const PAGE = `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AgentOS — Governança (Beta 2)</title>
+<title>AgentOS — Governança</title>
 <style>
-  :root { color-scheme: dark; }
+  :root { color-scheme: dark;
+    --bg:#0b0e12; --panel:#13181f; --panel2:#0e1319; --line:#222b36;
+    --ink:#e6ebf1; --dim:#8b9bab; --acc:#4f8ef7; --ok:#2f9e63; --no:#c0504d; }
   * { box-sizing: border-box; }
-  body { margin: 0; background: #101418; color: #dde3ea; font: 15px/1.5 system-ui, "Segoe UI", sans-serif; }
-  header { padding: 18px 26px; border-bottom: 1px solid #232a33; display: flex; align-items: baseline; gap: 14px; }
-  header h1 { font-size: 18px; margin: 0; }
-  header .sub { color: #8494a6; font-size: 13px; }
-  main { max-width: 1100px; margin: 0 auto; padding: 22px 26px 60px; }
-  section { background: #171c22; border: 1px solid #232a33; border-radius: 10px; padding: 18px 20px; margin-bottom: 18px; }
-  h2 { font-size: 15px; margin: 0 0 12px; color: #aebbca; }
-  button { background: #2563eb; color: #fff; border: 0; border-radius: 8px; padding: 9px 16px; font: inherit; cursor: pointer; }
-  button:hover { background: #1d4ed8; }
-  button.ghost { background: #232a33; color: #dde3ea; }
-  button.ghost:hover { background: #2c3540; }
-  button.ok { background: #14532d; }
-  button.no { background: #7f1d1d; }
-  button:disabled { opacity: .45; cursor: default; }
-  .note { color: #8494a6; font-size: 13px; margin-top: 10px; }
-  .err { color: #f87171; font-size: 13px; white-space: pre-wrap; }
-  pre.log { background: #0c0f13; border: 1px solid #232a33; border-radius: 8px; padding: 12px; max-height: 200px; overflow: auto; font-size: 12.5px; white-space: pre-wrap; }
-  table { width: 100%; border-collapse: collapse; font-size: 14px; }
-  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #232a33; }
-  th { color: #8494a6; font-weight: 500; font-size: 12.5px; }
-  .chip { display: inline-block; border-radius: 20px; padding: 2px 10px; font-size: 12px; background: #232a33; }
-  .chip.ok { background: #14532d; color: #86efac; }
-  .chip.run { background: #1e3a8a; color: #93c5fd; }
-  .card { border: 1px solid #232a33; border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; }
-  .card .inst { color: #aebbca; font-size: 13.5px; margin: 4px 0 12px; }
-  .out { background: #0c0f13; border: 1px solid #232a33; border-radius: 8px; padding: 12px; font-size: 13px; white-space: pre-wrap; max-height: 300px; overflow: auto; margin-top: 8px; }
-  .pick { display: flex; gap: 8px; margin-top: 10px; }
-  .verdict { font-size: 12.5px; margin-left: 8px; }
-  .sel { outline: 2px solid #2563eb; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+    font: 15px/1.55 system-ui, "Segoe UI", sans-serif; }
+  header { position:sticky; top:0; z-index:5; background:rgba(11,14,18,.92);
+    backdrop-filter: blur(6px); border-bottom:1px solid var(--line);
+    padding:12px 24px; display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+  header h1 { font-size:16px; margin:0; letter-spacing:.2px; }
+  header h1 span { color:var(--acc); }
+  select { background:var(--panel); color:var(--ink); border:1px solid var(--line);
+    border-radius:8px; padding:6px 10px; font:inherit; }
+  .tag { color:var(--dim); font-size:12.5px; }
+  nav { margin-left:auto; display:flex; gap:6px; }
+  nav button { background:transparent; color:var(--dim); border:0; border-radius:8px;
+    padding:7px 14px; font:inherit; cursor:pointer; }
+  nav button.on { background:var(--panel); color:var(--ink); border:1px solid var(--line); }
+  main { max-width:1080px; margin:0 auto; padding:20px 24px 80px; }
+  section.pane { display:none; }
+  section.pane.on { display:block; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px;
+    padding:16px 18px; margin-bottom:14px; }
+  h2 { font-size:12.5px; margin:0 0 12px; color:var(--dim);
+    text-transform:uppercase; letter-spacing:.8px; font-weight:600; }
+  button { background:var(--acc); color:#fff; border:0; border-radius:9px;
+    padding:8px 15px; font:inherit; cursor:pointer; }
+  button:hover { filter:brightness(1.1); }
+  button.ghost { background:var(--panel2); color:var(--ink); border:1px solid var(--line); }
+  button.okb { background:var(--ok); } button.nob { background:var(--no); }
+  button.soft { background:var(--panel2); color:var(--dim); border:1px solid var(--line); }
+  button:disabled { opacity:.4; cursor:default; }
+  .note { color:var(--dim); font-size:13px; margin-top:10px; }
+  .err { color:#f08a8a; font-size:13px; white-space:pre-wrap; margin-top:8px; }
+  pre.log { background:var(--panel2); border:1px solid var(--line); border-radius:8px;
+    padding:10px 12px; max-height:180px; overflow:auto; font-size:12.5px; white-space:pre-wrap; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { text-align:left; padding:9px 10px; border-bottom:1px solid var(--line); }
+  th { color:var(--dim); font-weight:500; font-size:12px; text-transform:uppercase; letter-spacing:.5px; }
+  tr:last-child td { border-bottom:0; }
+  .chip { display:inline-block; border-radius:20px; padding:2px 10px; font-size:12px;
+    background:var(--panel2); border:1px solid var(--line); color:var(--dim); }
+  .chip.ok { background:#12301f; color:#7fd8a5; border-color:#1d4a30; }
+  .chip.run { background:#152441; color:#9dc1fb; border-color:#23406e; }
+  .chip.ask { background:#3a2d12; color:#eec97a; border-color:#5d4a1e; }
+  .opt { background:var(--panel2); border:1px solid var(--line); border-radius:10px;
+    padding:12px 14px; margin-top:12px; }
+  .opt.sel { border-color:var(--acc); box-shadow:0 0 0 1px var(--acc); }
+  .opt .head { display:flex; align-items:center; gap:10px; }
+  .badge { width:26px; height:26px; border-radius:50%; background:var(--panel);
+    border:1px solid var(--line); display:inline-flex; align-items:center;
+    justify-content:center; font-weight:600; font-size:13px; }
+  .body { white-space:pre-wrap; font-size:13.5px; margin-top:10px;
+    max-height:280px; overflow:auto; color:#cdd6e0; }
+  .row { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; align-items:center; }
+  textarea { width:100%; background:var(--panel2); color:var(--ink);
+    border:1px solid var(--line); border-radius:9px; padding:9px 11px;
+    font:inherit; font-size:13.5px; min-height:56px; resize:vertical; }
+  .kpi { display:flex; gap:12px; flex-wrap:wrap; margin-bottom:14px; }
+  .kpi .box { background:var(--panel); border:1px solid var(--line); border-radius:12px;
+    padding:12px 18px; min-width:150px; }
+  .kpi .n { font-size:22px; font-weight:650; }
+  .kpi .l { color:var(--dim); font-size:12px; text-transform:uppercase; letter-spacing:.5px; }
+  .inst { color:var(--dim); font-size:13.5px; margin:2px 0 4px; }
 </style>
 </head>
 <body>
 <header>
-  <h1>AgentOS · Governança</h1>
-  <span class="sub">ADR-0015 — a seleção governada melhora as propostas? Cada clique é evidência.</span>
-  <span class="sub" id="sessionTag"></span>
+  <h1>agent<span>OS</span> · Governança</h1>
+  <select id="projectSel" title="Projeto"></select>
+  <span class="tag" id="sessionTag"></span>
+  <nav>
+    <button data-pane="decisions" class="on">Decisões</button>
+    <button data-pane="tray">Tabuleiro</button>
+    <button data-pane="metrics">Métricas</button>
+  </nav>
 </header>
 <main>
-  <section>
-    <h2>Decisões de hoje</h2>
-    <div style="margin-bottom:10px">
-      Modelo: <label><input type="radio" name="model" value="fake" checked> fake (custo zero)</label>
-      <label style="margin-left:10px"><input type="radio" name="model" value="manual"> manual (Claude Code, subscrição)</label>
+  <section class="pane on" id="pane-decisions">
+    <div class="card">
+      <h2>Decisões de hoje</h2>
+      <div class="row" style="margin:0 0 10px">
+        <span class="tag">Modelo:</span>
+        <label class="tag"><input type="radio" name="model" value="fake" checked> fake (custo zero)</label>
+        <label class="tag"><input type="radio" name="model" value="manual"> manual (Claude, subscrição)</label>
+      </div>
+      <table id="decisions"><thead><tr>
+        <th>decisão</th><th>rondas</th><th>estado</th><th></th>
+      </tr></thead><tbody></tbody></table>
+      <div id="busyBox" style="display:none">
+        <pre class="log" id="busyLog"></pre>
+        <div class="err" id="busyErr"></div>
+      </div>
+      <div class="note">Julgas cada proposta isolada antes de escolher a vencedora — o protocolo
+      não pode fabricar o vencedor. As propostas são cegas; o ângulo revela-se no fecho.
+      🎤 marca propostas que pedem entrevista (Artigo 9).</div>
     </div>
-    <table id="decisions"><thead><tr>
-      <th>decisão</th><th>rondas</th><th>estado</th><th></th>
-    </tr></thead><tbody></tbody></table>
-    <div id="busyBox" style="display:none">
-      <pre class="log" id="busyLog"></pre>
-      <div class="err" id="busyErr"></div>
+    <div class="card" id="judge" style="display:none">
+      <h2 id="judgeTitle"></h2>
+      <div class="inst" id="judgeInst"></div>
+      <div id="judgeNotes" class="note"></div>
+      <div id="judgeItems"></div>
+      <div id="selectStep" style="display:none">
+        <h2 style="margin-top:16px">Escolhe a vencedora (entre aprovadas)</h2>
+        <div class="row" id="selectPick"></div>
+      </div>
+      <div id="revealBox" class="note" style="display:none"></div>
+      <div style="margin-top:14px">
+        <h2>Nota para a próxima ronda (opcional — tu inicias a direção)</h2>
+        <textarea id="noteText" placeholder="ex.: quero mais silêncio antes da explosão; o adversário nunca aparece"></textarea>
+        <div class="row"><button class="ghost" id="noteSave">Guardar nota</button>
+        <span class="tag" id="noteMsg"></span></div>
+      </div>
     </div>
-    <div class="note">Julgas cada proposta isolada (aprovar/rejeitar) antes de escolher a vencedora —
-    o protocolo de comparação não pode fabricar o vencedor. As opções são cegas: o ângulo que as produziu só é revelado no fecho.</div>
   </section>
 
-  <section id="judge" style="display:none">
-    <h2 id="judgeTitle"></h2>
-    <div class="inst" id="judgeInst"></div>
-    <div id="judgeItems"></div>
-    <div id="selectStep" style="display:none">
-      <h2>Escolhe a vencedora (entre as aprovadas)</h2>
-      <div class="pick" id="selectPick"></div>
+  <section class="pane" id="pane-tray">
+    <div class="card">
+      <h2>Seeds candidatas — destiladas da tua seleção</h2>
+      <div id="tray"></div>
+      <div class="note">Nada é admitido automaticamente (O5): cada candidata mostra a sua evidência
+      e espera o teu clique. Admitidas entram no contexto das próximas propostas — o manifest prova-o.</div>
     </div>
-    <div id="revealBox" class="note" style="display:none"></div>
   </section>
 
-  <section>
-    <h2>Tabuleiro — seeds candidatas (destiladas da tua seleção)</h2>
-    <div id="tray"></div>
-    <div class="note">Nada é admitido automaticamente: a candidata mostra a sua evidência e espera o teu clique (O5).
-    Admitidas entram no contexto das próximas propostas — o manifest prova-o.</div>
-  </section>
-
-  <section>
-    <h2>Métricas</h2>
-    <div id="metrics"></div>
+  <section class="pane" id="pane-metrics">
+    <div class="kpi" id="kpis"></div>
+    <div class="card">
+      <h2>Melhoria — taxa de aprovação por ronda (casos novos)</h2>
+      <div id="metrics"></div>
+    </div>
+    <div class="card">
+      <h2>Consistência — casos âncora (ADR-0016; não ensinam nada)</h2>
+      <div id="consBox" class="note"></div>
+      <div class="row"><button class="ghost" id="anchorBtn">Repetir um caso âncora (cego)</button></div>
+      <div id="anchorItems"></div>
+      <div id="anchorPick" class="row"></div>
+    </div>
   </section>
 </main>
 <script>
 "use strict";
 var state = null;
+var project = localStorage.getItem("agentos-project") || "";
 var openDecision = null;
+var anchorId = null;
 
 function el(id) { return document.getElementById(id); }
-function esc(s) {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
+function esc(s) { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
 function api(method, path, body) {
+  var sep = path.indexOf("?") >= 0 ? "&" : "?";
   var opts = { method: method, headers: { "content-type": "application/json" } };
-  if (body) opts.body = JSON.stringify(body);
-  return fetch(path, opts).then(function (r) { return r.json(); });
+  if (body) { body.project = project; opts.body = JSON.stringify(body); }
+  return fetch(path + sep + "project=" + encodeURIComponent(project), opts)
+    .then(function (r) { return r.json(); });
 }
-function model() {
-  return document.querySelector("input[name=model]:checked").value;
-}
+function model() { return document.querySelector("input[name=model]:checked").value; }
 
+// --- tabs ------------------------------------------------------------------
+Array.prototype.forEach.call(document.querySelectorAll("nav button"), function (b) {
+  b.onclick = function () {
+    Array.prototype.forEach.call(document.querySelectorAll("nav button"), function (x) { x.className = ""; });
+    Array.prototype.forEach.call(document.querySelectorAll("section.pane"), function (x) { x.className = "pane"; });
+    b.className = "on";
+    el("pane-" + b.getAttribute("data-pane")).className = "pane on";
+  };
+});
+
+// --- polling ---------------------------------------------------------------
 function refresh() {
   api("GET", "/api/state").then(function (s) {
+    if (s.error) return;
     state = s;
-    el("sessionTag").textContent = "sessão " + s.session +
-      (s.learned.length ? " · " + s.learned.length + " seed(s) aprendida(s) ativa(s)" : "");
-    renderDecisions();
-    renderBusy();
-    renderTray();
-    renderMetrics();
+    if (!project) project = s.project.id;
+    renderHeader(); renderDecisions(); renderBusy(); renderTray(); renderMetrics();
     if (openDecision) loadJudge(openDecision, true);
+    if (anchorId) loadAnchor(true);
   });
 }
 setInterval(refresh, 1500);
 refresh();
+
+var lastProjectsJson = "";
+function renderHeader() {
+  el("sessionTag").textContent = "sessão " + state.session +
+    (state.learned.length ? " · " + state.learned.length + " seed(s) ativa(s)" : "");
+  var json = JSON.stringify([state.projects, state.project.id]);
+  if (json === lastProjectsJson) return;
+  lastProjectsJson = json;
+  var sel = el("projectSel");
+  sel.innerHTML = "";
+  state.projects.forEach(function (p) {
+    var o = document.createElement("option");
+    o.value = p.id; o.textContent = p.name;
+    if (p.id === state.project.id) o.selected = true;
+    sel.appendChild(o);
+  });
+  sel.onchange = function () {
+    project = sel.value;
+    localStorage.setItem("agentos-project", project);
+    openDecision = null; anchorId = null;
+    el("judge").style.display = "none";
+    lastDecisionsJson = ""; lastTrayJson = ""; lastMetricsJson = "";
+    refresh();
+  };
+}
 
 function renderBusy() {
   var b = state.busy;
@@ -579,15 +813,16 @@ function renderDecisions() {
   state.decisions.forEach(function (d) {
     var tr = document.createElement("tr");
     var status = d.closed ? "<span class='chip ok'>fechada</span>"
-      : d.judgeable ? "<span class='chip run'>a julgar (ronda " + d.rounds + ")</span>"
+      : d.judgeable ? "<span class='chip run'>a julgar · ronda " + d.rounds + "</span>"
       : d.rounds > 0 ? "<span class='chip'>ronda " + d.rounds + "</span>"
       : "<span class='chip'>por abrir</span>";
-    tr.innerHTML = "<td>" + esc(d.title) + " <span class='note'>(" + esc(d.id) + ")</span></td>"
-      + "<td>" + d.rounds + "</td><td>" + status + "</td><td></td>";
+    if (d.asksInterview) status += " <span class='chip ask'>🎤 entrevista</span>";
+    tr.innerHTML = "<td><strong>" + esc(d.title) + "</strong><br><span class='tag'>" + esc(d.id) + "</span></td>"
+      + "<td>" + d.rounds + "</td><td>" + status + "</td><td style='text-align:right'></td>";
     var cell = tr.lastChild;
     if (!d.closed && !d.judgeable) {
       var b = document.createElement("button");
-      b.textContent = d.rounds === 0 ? "Propor ronda 1" : "Iterar (ronda " + (d.rounds + 1) + ")";
+      b.textContent = d.rounds === 0 ? "Propor" : "Iterar (r" + (d.rounds + 1) + ")";
       b.disabled = !!state.busy;
       b.onclick = function () {
         api("POST", "/api/round", { decisionId: d.id, model: model() }).then(refresh);
@@ -596,9 +831,9 @@ function renderDecisions() {
     }
     if (d.judgeable || d.closed) {
       var b2 = document.createElement("button");
-      b2.className = "ghost";
+      b2.className = "ghost"; b2.style.marginLeft = "6px";
       b2.textContent = d.closed ? "Rever" : "Julgar";
-      b2.onclick = function () { openDecision = d.id; loadJudge(d.id, false); };
+      b2.onclick = function () { openDecision = d.id; lastJudgeJson = ""; loadJudge(d.id, false); };
       cell.appendChild(b2);
     }
     tb.appendChild(tr);
@@ -613,27 +848,31 @@ function loadJudge(decisionId, quiet) {
     if (json === lastJudgeJson) return;
     lastJudgeJson = json;
     el("judge").style.display = "";
-    el("judgeTitle").textContent = "Julgamento — " + j.title + " · ronda " + j.round + (j.closed ? " · FECHADA" : "");
+    el("judgeTitle").textContent = j.title + " · ronda " + j.round + (j.closed ? " · FECHADA" : "");
     el("judgeInst").textContent = j.instruction;
+    el("judgeNotes").textContent = j.notes.length ? "Notas tuas ativas: " + j.notes.join(" · ") : "";
     var host = el("judgeItems");
     host.innerHTML = "";
     j.options.forEach(function (o) {
       var card = document.createElement("div");
-      card.className = "card" + (o.selected ? " sel" : "");
-      card.innerHTML = "<strong>Proposta " + esc(o.letter) + "</strong>"
-        + (o.verdict ? "<span class='verdict'>" + (o.verdict === "approve" ? "✔ aprovada" : "✘ rejeitada") + "</span>" : "")
-        + (o.selected ? "<span class='verdict'>★ vencedora</span>" : "")
-        + "<div class='out'>" + esc(o.body) + "</div>";
+      card.className = "opt" + (o.selected ? " sel" : "");
+      var head = "<div class='head'><span class='badge'>" + esc(o.letter) + "</span>"
+        + (o.asksInterview ? "<span class='chip ask'>🎤 pede entrevista</span>" : "")
+        + (o.verdict ? "<span class='chip " + (o.verdict === "approve" ? "ok" : "") + "'>"
+            + (o.verdict === "approve" ? "✔ aprovada" : "✘ rejeitada") + "</span>" : "")
+        + (o.selected ? "<span class='chip ok'>★ vencedora</span>" : "")
+        + "</div>";
+      card.innerHTML = head + "<div class='body'>" + esc(o.body) + "</div>";
       if (!j.closed) {
         var pick = document.createElement("div");
-        pick.className = "pick";
-        [["approve", "Aprovar", "ok"], ["reject", "Rejeitar", "no"]].forEach(function (a) {
+        pick.className = "row";
+        [["approve", "Aprovar", "okb"], ["reject", "Rejeitar", "nob"]].forEach(function (a) {
           var b = document.createElement("button");
-          b.className = a[2] + (o.verdict === a[0] ? "" : " ghost");
+          b.className = o.verdict === a[0] ? a[2] : "soft";
           b.textContent = a[1];
           b.onclick = function () {
             api("POST", "/api/click", { decisionId: decisionId, round: j.round, letter: o.letter, action: a[0] })
-              .then(function () { lastJudgeJson = ""; loadJudge(decisionId, false); refresh(); });
+              .then(function () { lastJudgeJson = ""; loadJudge(decisionId, true); refresh(); });
           };
           pick.appendChild(b);
         });
@@ -651,25 +890,31 @@ function loadJudge(decisionId, quiet) {
         b.textContent = "Proposta " + l + " vence";
         b.onclick = function () {
           api("POST", "/api/click", { decisionId: decisionId, round: j.round, letter: l, action: "select" })
-            .then(function () { lastJudgeJson = ""; loadJudge(decisionId, false); refresh(); });
+            .then(function () { lastJudgeJson = ""; loadJudge(decisionId, true); refresh(); });
         };
         pick2.appendChild(b);
       });
-    } else {
-      stepBox.style.display = "none";
-    }
+    } else { stepBox.style.display = "none"; }
     var reveal = el("revealBox");
     if (j.reveal) {
       reveal.style.display = "";
       var parts = [];
       Object.keys(j.reveal).sort().forEach(function (k) { parts.push(k + " = " + j.reveal[k]); });
-      reveal.textContent = "Revelação (decisão fechada): " + parts.join(" · ");
-    } else {
-      reveal.style.display = "none";
-    }
+      reveal.textContent = "Revelação (fechada): " + parts.join(" · ");
+    } else { reveal.style.display = "none"; }
     if (!quiet) el("judge").scrollIntoView({ behavior: "smooth" });
   });
 }
+
+el("noteSave").onclick = function () {
+  var t = el("noteText").value.trim();
+  if (!t || !openDecision) return;
+  api("POST", "/api/note", { decisionId: openDecision, text: t }).then(function (r) {
+    el("noteMsg").textContent = r.ok ? "Nota guardada — entra na próxima ronda." : (r.error || "erro");
+    el("noteText").value = "";
+    lastJudgeJson = ""; loadJudge(openDecision, true);
+  });
+};
 
 var lastTrayJson = "";
 function renderTray() {
@@ -679,24 +924,21 @@ function renderTray() {
   var host = el("tray");
   host.innerHTML = "";
   if (state.tray.length === 0) {
-    host.innerHTML = "<div class='note'>Sem candidatas — o destilador precisa de pelo menos 2 vitórias do mesmo ângulo.</div>";
+    host.innerHTML = "<div class='note'>Sem candidatas — o destilador precisa de ≥2 vitórias do mesmo ângulo.</div>";
     return;
   }
   state.tray.forEach(function (c) {
     var card = document.createElement("div");
-    card.className = "card";
-    card.innerHTML = "<strong>" + esc(c.title) + "</strong>"
-      + "<span class='note'> — " + c.stats.selections + " vitórias / " + c.stats.appearances + " aparições</span>"
-      + "<div class='out'>" + esc(c.body) + "</div>";
+    card.className = "opt";
+    card.innerHTML = "<div class='head'><strong>" + esc(c.title) + "</strong>"
+      + "<span class='chip'>" + c.stats.selections + " vitórias / " + c.stats.appearances + " aparições</span></div>"
+      + "<div class='body'>" + esc(c.body) + "</div>";
     var pick = document.createElement("div");
-    pick.className = "pick";
-    [["admit", "Admitir seed", "ok"], ["discard", "Descartar", "no"]].forEach(function (a) {
+    pick.className = "row";
+    [["admit", "Admitir seed", "okb"], ["discard", "Descartar", "nob"]].forEach(function (a) {
       var b = document.createElement("button");
-      b.className = a[2];
-      b.textContent = a[1];
-      b.onclick = function () {
-        api("POST", "/api/tray", { candidateId: c.id, action: a[0] }).then(refresh);
-      };
+      b.className = a[2]; b.textContent = a[1];
+      b.onclick = function () { api("POST", "/api/tray", { candidateId: c.id, action: a[0] }).then(refresh); };
       pick.appendChild(b);
     });
     card.appendChild(pick);
@@ -710,15 +952,84 @@ function renderMetrics() {
   if (json === lastMetricsJson) return;
   lastMetricsJson = json;
   var m = state.metrics;
-  var html = "<table><tr><th>ronda</th><th>propostas julgadas</th><th>aprovadas</th><th>taxa</th></tr>";
+  var closed = m.progress.filter(function (p) { return p.closed; }).length;
+  el("kpis").innerHTML =
+    "<div class='box'><div class='n'>" + closed + "/" + m.progress.length + "</div><div class='l'>decisões fechadas</div></div>"
+    + "<div class='box'><div class='n'>" + state.learned.length + "</div><div class='l'>seeds aprendidas</div></div>"
+    + "<div class='box'><div class='n'>" + (m.consistency.anchorsCompleted
+        ? m.consistency.agreements + "/" + m.consistency.anchorsCompleted : "—")
+      + "</div><div class='l'>consistência (âncoras)</div></div>";
+  var html = "<table><tr><th>ronda</th><th>julgadas</th><th>aprovadas</th><th>taxa</th></tr>";
   m.byRound.forEach(function (r) {
-    html += "<tr><td>" + r.round + "</td><td>" + r.proposals + "</td><td>" + r.approvals + "</td><td>"
-      + Math.round(r.rate * 100) + "%</td></tr>";
+    html += "<tr><td>" + r.round + "</td><td>" + r.proposals + "</td><td>" + r.approvals
+      + "</td><td>" + Math.round(r.rate * 100) + "%</td></tr>";
   });
-  html += "</table><div class='note'>Fechadas: "
-    + m.progress.filter(function (p) { return p.closed; }).length + "/" + m.progress.length
-    + " decisões (sessão de hoje). A taxa por ronda responde à pergunta do ADR-0015: a ronda N+1 aprova mais do que a ronda N?</div>";
+  html += "</table><div class='note'>A pergunta do ADR-0015: a ronda N+1 aprova mais do que a ronda N?</div>";
   el("metrics").innerHTML = html;
+  el("consBox").textContent = m.anchorable > 0
+    ? m.anchorable + " caso(s) fechado(s) disponível(is) para âncora. A âncora repete um caso já julgado, às cegas e baralhado; serve só para medir a estabilidade do teu critério."
+    : "Ainda não há casos fechados nesta sessão para ancorar.";
+}
+
+el("anchorBtn").onclick = function () {
+  api("POST", "/api/anchor", {}).then(function (r) {
+    if (r.error) { el("consBox").textContent = r.error; return; }
+    anchorId = r.anchorId;
+    loadAnchor(false);
+  });
+};
+
+var lastAnchorJson = "";
+function loadAnchor(quiet) {
+  api("GET", "/api/anchor?id=" + encodeURIComponent(anchorId)).then(function (a) {
+    if (a.error) return;
+    var json = JSON.stringify(a);
+    if (json === lastAnchorJson) return;
+    lastAnchorJson = json;
+    var host = el("anchorItems");
+    host.innerHTML = "";
+    a.options.forEach(function (o) {
+      var card = document.createElement("div");
+      card.className = "opt" + (o.selected ? " sel" : "");
+      card.innerHTML = "<div class='head'><span class='badge'>" + esc(o.letter) + "</span>"
+        + (o.verdict ? "<span class='chip " + (o.verdict === "approve" ? "ok" : "") + "'>"
+          + (o.verdict === "approve" ? "✔" : "✘") + "</span>" : "")
+        + (o.selected ? "<span class='chip ok'>★</span>" : "") + "</div>"
+        + "<div class='body'>" + esc(o.body) + "</div>";
+      if (!a.done) {
+        var pick = document.createElement("div");
+        pick.className = "row";
+        [["approve", "Aprovar", "okb"], ["reject", "Rejeitar", "nob"]].forEach(function (x) {
+          var b = document.createElement("button");
+          b.className = o.verdict === x[0] ? x[2] : "soft"; b.textContent = x[1];
+          b.onclick = function () {
+            api("POST", "/api/anchor-click", { anchorId: anchorId, letter: o.letter, action: x[0] })
+              .then(function () { lastAnchorJson = ""; loadAnchor(true); });
+          };
+          pick.appendChild(b);
+        });
+        card.appendChild(pick);
+      }
+      host.appendChild(card);
+    });
+    var pickHost = el("anchorPick");
+    pickHost.innerHTML = "";
+    if (!a.done && a.allJudged && a.approvedLetters.length > 0) {
+      a.approvedLetters.forEach(function (l) {
+        var b = document.createElement("button");
+        b.textContent = "Proposta " + l + " vence";
+        b.onclick = function () {
+          api("POST", "/api/anchor-click", { anchorId: anchorId, letter: l, action: "select" })
+            .then(function () { lastAnchorJson = ""; anchorId = null;
+              el("anchorItems").innerHTML = ""; el("anchorPick").innerHTML = "";
+              lastMetricsJson = ""; refresh(); });
+        };
+        pickHost.appendChild(b);
+      });
+    }
+    if (a.done) { el("anchorItems").innerHTML = ""; anchorId = null; }
+    if (!quiet) el("anchorItems").scrollIntoView({ behavior: "smooth" });
+  });
 }
 </script>
 </body>
@@ -746,7 +1057,7 @@ function main(): void {
     throw err;
   });
   server.listen(port, "127.0.0.1", () => {
-    console.log(`AgentOS governance dashboard (Beta 2): http://localhost:${port}`);
+    console.log(`AgentOS governance dashboard: http://localhost:${port}`);
     console.log(`(local only — nothing is exposed beyond this machine)`);
   });
 }

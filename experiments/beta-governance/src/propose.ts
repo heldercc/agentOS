@@ -205,8 +205,8 @@ export async function runRound(args: RoundArgs): Promise<RoundMapping> {
 
   const feedback = priorFeedback(args.runsDir, args.session, args.decision, args.round);
   const dataPaths = {
-    decisionsPath: abs(args.runsDir, "..", "data", "decisions.json"),
-    approachesPath: abs(args.runsDir, "..", "data", "approaches.json"),
+    decisionsPath: abs(args.project.dir, "decisions.json"),
+    approachesPath: abs(args.project.dir, "approaches.json"),
   };
 
   for (const [letter, approachId] of Object.entries(letters)) {

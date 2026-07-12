@@ -1,7 +1,8 @@
-// Loads the experiment's corpus: decisions, approaches, and the learned seeds
-// the Pilot has admitted so far. All domain vocabulary lives in the data files.
+// Loads a governed project's corpus: decisions, approaches, and the learned
+// seeds the owner has admitted so far. Several projects can run side by side
+// (data/projects/<id>/); all domain vocabulary lives in the data files.
 
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 
 import { abs, makeRef, readJson, readText } from "./stores.js";
 import type {
@@ -18,10 +19,41 @@ export interface LearnedSeed {
   body: string;
 }
 
+export interface ProjectInfo {
+  id: string;
+  name: string;
+}
+
 export interface Project {
+  id: string;
+  name: string;
+  /** The project's data directory (decisions.json, approaches.json, learned/). */
+  dir: string;
   decisions: Decision[];
   approaches: Approach[];
   learned: LearnedSeed[];
+  learnedDir: string;
+}
+
+export function listProjects(projectsDir: string): ProjectInfo[] {
+  if (!existsSync(projectsDir)) return [];
+  const out: ProjectInfo[] = [];
+  for (const id of readdirSync(projectsDir).sort()) {
+    const dir = abs(projectsDir, id);
+    if (!statSync(dir).isDirectory()) continue;
+    if (!existsSync(abs(dir, "decisions.json"))) continue;
+    let name = id;
+    const meta = abs(dir, "project.json");
+    if (existsSync(meta)) {
+      try {
+        name = readJson<{ name?: string }>(meta).name ?? id;
+      } catch {
+        name = id;
+      }
+    }
+    out.push({ id, name });
+  }
+  return out;
 }
 
 export function loadLearned(repoRoot: string, learnedDir: string): LearnedSeed[] {
@@ -39,14 +71,36 @@ export function loadLearned(repoRoot: string, learnedDir: string): LearnedSeed[]
 
 export function loadProject(
   repoRoot: string,
-  dataDir: string,
-  learnedDir: string,
+  projectsDir: string,
+  projectId: string,
+  learnedDirOverride?: string,
 ): Project {
-  const decisions = readJson<DecisionFile>(abs(dataDir, "decisions.json")).decisions;
-  const approaches = readJson<ApproachFile>(abs(dataDir, "approaches.json")).approaches;
-  if (decisions.length === 0) throw new Error("no decisions in data/decisions.json");
+  const dir = abs(projectsDir, projectId);
+  if (!existsSync(abs(dir, "decisions.json"))) {
+    throw new Error(`unknown project "${projectId}" under ${projectsDir}`);
+  }
+  const decisions = readJson<DecisionFile>(abs(dir, "decisions.json")).decisions;
+  const approaches = readJson<ApproachFile>(abs(dir, "approaches.json")).approaches;
+  if (decisions.length === 0) throw new Error("no decisions in decisions.json");
   if (approaches.length < 2) {
     throw new Error("need at least 2 approaches for selection to mean anything");
   }
-  return { decisions, approaches, learned: loadLearned(repoRoot, learnedDir) };
+  let name = projectId;
+  if (existsSync(abs(dir, "project.json"))) {
+    try {
+      name = readJson<{ name?: string }>(abs(dir, "project.json")).name ?? projectId;
+    } catch {
+      name = projectId;
+    }
+  }
+  const learnedDir = learnedDirOverride ?? abs(dir, "learned");
+  return {
+    id: projectId,
+    name,
+    dir,
+    decisions,
+    approaches,
+    learned: loadLearned(repoRoot, learnedDir),
+    learnedDir,
+  };
 }
