@@ -4,10 +4,12 @@
 Build AgentOS — an operating system for reusable human expertise.
 
 ## Current Heading
-Book II open — hypothesis-first. The ADR-0012 vertical slice is built and
-verified; the engineering plan is engineering/OVERVIEW.md. What the
-hypothesis owes now is evidence: the Pilot's real corpus, one real run, and
-the Pilot's blind verdicts.
+The PRODUCT phase is open (docs/PRODUCT-LOOP.md, doctrine; ADR-0018,
+implementation). The experiment rigs are FROZEN evidence infrastructure;
+the product shell lives in product/ (localhost:4900) and runs the whole
+13-step loop — smoke 33/33, browser-verified on the fake runtime. What the
+shell owes now: its first run on a real model (cli runtime, haiku), then
+the Songoku Beta lived INSIDE the product.
 
 ## Current State
 Copilot transition complete (founding Copilot → current Copilot); founding
@@ -67,16 +69,14 @@ commoditized and swappable.
 ## Next Bearing
 The Two Grand Objectives are explicit (docs/OBJECTIVES.md): (A) token
 economy — the Kernel; (B) taste governance by clicks — the user's loop.
-ADR-0015 is RATIFIED and its rig is BUILT and VERIFIED on the fake model
-(experiments/beta-governance/, dashboard at localhost:4700). Both Betas now
-wait on the same unblocker: the Pilot's real corpus.
-Discharge Beta 1 (ADR-0012), in order: (1) the Pilot authors the real
-fight-scene corpus (data/ placeholders out); (2) review of the authored data
-against the corpus-shaping risk (engineering/OVERVIEW.md §6); (3) one real
-comparison run through the manual port (dashboard, option 1 in beta.bat);
-(4) the Pilot judges blind; (5) RESULTS.md recorded against the three
-committed exits; (6) the devil's-advocate review with Fable 5 the Pilot asked
-for. Only then: Kernel v0 design ADR (Phase 1). Pilot's earlier flags remain:
+The product shell (ADR-0018) is the new spine; the rigs feed it evidence.
+In order: (1) first REAL run of the shell's cli runtime (claude logged in;
+haiku, short project) — scheduled for the end of Session 008's night;
+(2) the Pilot judges the 4 real ascensao-t2 rounds at localhost:4700 and
+answers the 2 aggregated questions (Beta 2 evidence, still owed);
+(3) the Songoku Beta run INSIDE the product shell (Operating Model §11 —
+nothing pre-authored); (4) what kernel.ts proves out gets specified in
+engineering/ as Kernel v0 (Book II). Pilot's earlier flags remain:
 Constitution polish pass; SavePoint structural criteria when indexing begins.
 
 ## Sync Doctrine
@@ -87,10 +87,9 @@ commit is invisible state and breaks the model. (Pilot's standing grant,
 2026-07-12.)
 
 ## Last Updated
-Session 006 (2026-07-12) — Expedition 2 gated (15 seeds; net retired);
-Trawler+Camera dispositioned. The Pilot registered the Two Grand Objectives
-and ratified ADR-0015; the Beta 2 governance rig was built and verified the
-same session (experiments/beta-governance/: blind rounds, pointwise-first
-judging, evidence log, distiller, tray, learned seeds re-entering context —
-smoke 15/15 on the fake model, strict TS, domain-blind). The Pilot's real
-fight-scene corpus remains the number-one unblocker for both Betas.
+Session 008 (2026-07-12, night) — the product shell born in product/
+(ADR-0018): the 13-step loop end-to-end, smoke 33/33, browser-verified on
+the fake runtime; shell face at localhost:4900 with effort probe before
+every spend. The claude CLI is installed and logged in; the first REAL
+cli-runtime test (haiku) is scheduled for when the account's token window
+opens. Sessions 006–007 detail: docs/navigation/2026/2026-07.md addenda 5–7.
