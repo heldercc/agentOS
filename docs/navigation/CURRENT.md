@@ -7,9 +7,11 @@ Build AgentOS — an operating system for reusable human expertise.
 The PRODUCT phase is open (docs/PRODUCT-LOOP.md, doctrine; ADR-0018,
 implementation). The experiment rigs are FROZEN evidence infrastructure;
 the product shell lives in product/ (localhost:4900) and runs the whole
-13-step loop — smoke 33/33, browser-verified on the fake runtime. What the
-shell owes now: its first run on a real model (cli runtime, haiku), then
-the Songoku Beta lived INSIDE the product.
+13-step loop — smoke 33/33, browser-verified on the fake runtime, and now
+proven on a REAL model: the cli runtime carried a first real project
+end-to-end (haiku, 14 work orders, a complete usable artifact — diary
+addendum 8, three product findings). Next: the Songoku Beta lived INSIDE
+the product.
 
 ## Current State
 Copilot transition complete (founding Copilot → current Copilot); founding
