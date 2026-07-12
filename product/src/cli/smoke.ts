@@ -15,12 +15,14 @@ import {
   decideSeedGoverned,
   getProject,
   initProject,
+  listArtifacts,
   openQuestions,
   readApproved,
   readQuestions,
   readRoster,
   readSurfaces,
   readWorkOrders,
+  recordSeedEvidenceGoverned,
   refineOption,
   runCandidate,
   runConsult,
@@ -31,8 +33,9 @@ import {
   stageOf,
   storyOf,
   topOpenQuestion,
+  type ArtifactProvenance,
 } from "../kernel.js";
-import { getCandidate, getSeed } from "../hi.js";
+import { getCandidate, getSeed, seedYamlPath } from "../hi.js";
 import { resolveSeeds } from "../resolver.js";
 import { buildActual } from "../effort.js";
 import { projectDir, WORKSPACE_DIR } from "../paths.js";
@@ -215,6 +218,12 @@ async function main(): Promise<void> {
     })(),
   );
   check("12e. stage is advance", stageOf(project.id) === "advance");
+  check(
+    "12f. the artifact carries a provenance sidecar (even with an empty library)",
+    readJson<ArtifactProvenance>(
+      (exec.artifacts[0] ?? "").replace(/\.md$/, ".provenance.json"),
+    ).workOrderId !== "",
+  );
 
   // Step 13 — the loop repeats.
   const advanced = advanceIteration(project.id, true);
@@ -345,6 +354,50 @@ async function main(): Promise<void> {
     synthManifest?.elements.some((el) => el.ref.id === ds.id) === true,
   );
 
+  // The artifact declares its provenance (gap audit, critical row): approve
+  // the it-2 candidate, execute, and the sidecar must name the seed, its
+  // version, and the Resolver's reason — artifact → expertise, by reference.
+  decideCandidate(project.id, "approve", undefined, true);
+  const exec2 = await runExecute({
+    projectId: project.id,
+    level: "minimal",
+    runtime,
+    scripted: true,
+  });
+  const prov = readJson<ArtifactProvenance>(
+    (exec2.artifacts[0] ?? "").replace(/\.md$/, ".provenance.json"),
+  );
+  check(
+    "20t. the artifact declares the seeds that shaped it",
+    prov.seeds.some((s) => s.id === seed.id && s.version >= 1 && s.reason !== ""),
+  );
+  check(
+    "20u. artifact provenance is visible through listArtifacts",
+    listArtifacts(project.id).some(
+      (a) => a.iteration === 2 && a.seeds?.some((s) => s.id === seed.id) === true,
+    ),
+  );
+
+  // The evidence returns to the seed (ADR-0020, Consequences) — only by the
+  // user's hand, on the asset itself and in its append-only file.
+  const graded = recordSeedEvidenceGoverned(
+    project.id,
+    seed.id,
+    "supporting",
+    "the smoke artifact honored brevity",
+    true,
+  );
+  check(
+    "20v. the user's evidence lands on the seed record",
+    graded.evidence.supporting.length === 1 && graded.evidence.contradicting.length === 0,
+  );
+  check(
+    "20w. the seed's evidence.jsonl is append-only on disk",
+    readText(seedYamlPath(graded).replace(/seed\.yaml$/, "evidence.jsonl"))
+      .trim()
+      .split("\n").length === 1,
+  );
+
   // The story: the whole project, including the new lineage, from disk.
   const story = storyOf(project.id);
   const flat = story.iterations.flatMap((i) => i.items);
@@ -372,6 +425,10 @@ async function main(): Promise<void> {
   check(
     "20s. the interview is in the story with question and answer",
     flat.some((i) => i.action === "question_answered" && i.questionText && i.answer),
+  );
+  check(
+    "20x. the evidence moment is in the story",
+    flat.some((i) => i.action === "seed_evidence" && i.actor === "pilot"),
   );
 
   // Cross-cutting invariants.

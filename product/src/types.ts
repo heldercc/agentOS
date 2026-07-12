@@ -253,6 +253,7 @@ export interface EvidenceEvent {
     | "seed_admitted"
     | "seed_rejected"
     | "seed_candidate_extracted"
+    | "seed_evidence"
     | "mentor_saved"
     | "decision_opened"
     | "option_refined"

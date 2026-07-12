@@ -25,6 +25,7 @@ import {
   listCandidates,
   listSeeds,
   recordSeedApplication,
+  recordSeedEvidence,
   rejectSeed,
   saveMentor,
   seedYamlPath,
@@ -157,11 +158,36 @@ export function readApproved(projectId: string): ApprovedState | null {
   return existsSync(p) ? readJson<ApprovedState>(p) : null;
 }
 
+/**
+ * The artifact's own declaration of what shaped it (gap audit, critical row;
+ * TERMINOLOGY: "every Artifact carries provenance by reference"): a sidecar
+ * next to the artifact file, so the artifact text stays byte-faithful to the
+ * runtime's output while the human intelligence behind it stays provable.
+ */
+export interface ArtifactProvenance {
+  workOrderId: string;
+  agentId: string;
+  iteration: number;
+  effortLevel: string;
+  model: string;
+  seeds: {
+    id: string;
+    version: number;
+    title: string;
+    reason: string;
+    mentorId?: string;
+    mentorTitle?: string;
+  }[];
+}
+
 export interface ArtifactInfo {
   iteration: number;
   agentId: string;
   path: string;
   chars: number;
+  workOrderId?: string;
+  /** The human intelligence that shaped this artifact (provenance by reference). */
+  seeds?: ArtifactProvenance["seeds"];
 }
 
 export function listArtifacts(projectId: string): ArtifactInfo[] {
@@ -174,12 +200,19 @@ export function listArtifacts(projectId: string): ArtifactInfo[] {
     const itDir = abs(root, itName);
     for (const f of readdirSync(itDir).sort()) {
       if (!f.endsWith(".md")) continue;
-      out.push({
+      const info: ArtifactInfo = {
         iteration: Number(m[1]),
         agentId: f.replace(/\.md$/, ""),
         path: abs(itDir, f),
         chars: readText(abs(itDir, f)).length,
-      });
+      };
+      const provPath = abs(itDir, f.replace(/\.md$/, ".provenance.json"));
+      if (existsSync(provPath)) {
+        const prov = readJson<ArtifactProvenance>(provPath);
+        info.workOrderId = prov.workOrderId;
+        info.seeds = prov.seeds;
+      }
+      out.push(info);
     }
   }
   return out;
@@ -511,8 +544,13 @@ function addPilotNotes(b: ContextBuilder, project: Project): void {
  * owner's judgement outranks derived history. Each entry carries the
  * Resolver's reason (and Mentor attribution) into the manifest.
  */
-function addExpertise(b: ContextBuilder, project: Project, agentTags: string[]): void {
-  for (const r of resolveSeeds({ projectId: project.id, agentTags })) {
+function addExpertise(
+  b: ContextBuilder,
+  project: Project,
+  agentTags: string[],
+): ResolvedSeed[] {
+  const resolved = resolveSeeds({ projectId: project.id, agentTags });
+  for (const r of resolved) {
     b.add({
       kind: "expertise",
       id: r.seed.id,
@@ -525,6 +563,7 @@ function addExpertise(b: ContextBuilder, project: Project, agentTags: string[]):
       required: false,
     });
   }
+  return resolved;
 }
 
 function addRole(b: ContextBuilder, project: Project, agent: AgentRole): void {
@@ -943,7 +982,7 @@ export async function runExecute(args: {
     const b = baseContext(project, spec.contextBudgetChars);
     addRole(b, project, agent);
     addApprovedState(b, project, true);
-    addExpertise(b, project, agent.tags);
+    const applied = addExpertise(b, project, agent.tags);
     addAnswers(b, project, false);
     for (const a of listArtifacts(project.id).reverse()) {
       b.add({
@@ -971,6 +1010,27 @@ export async function runExecute(args: {
     const artifactPath = abs(artifactsDir(project.id, project.iteration), `${agent.id}.md`);
     writeArtifactOnce(artifactPath, text);
     artifacts.push(artifactPath);
+    // Provenance by reference, on the artifact itself (gap audit): which
+    // human judgement shaped this output, at which version, and why it was
+    // selected — the artifact text stays byte-faithful, the sidecar declares.
+    const provenance: ArtifactProvenance = {
+      workOrderId: record.id,
+      agentId: agent.id,
+      iteration: project.iteration,
+      effortLevel: record.effortLevel,
+      model: record.model,
+      seeds: applied.map((r) => ({
+        id: r.seed.id,
+        version: r.seed.version,
+        title: r.seed.title,
+        reason: r.reason,
+        ...(r.mentorId ? { mentorId: r.mentorId, mentorTitle: r.mentorTitle } : {}),
+      })),
+    };
+    writeJson(
+      abs(artifactsDir(project.id, project.iteration), `${agent.id}.provenance.json`),
+      provenance,
+    );
     event(project, "kernel", "artifact_returned", scripted, {
       workOrderId: record.id,
       agentId: agent.id,
@@ -1062,6 +1122,27 @@ export function saveMentorGoverned(
     note: `${mentor.title} (v${mentor.version}, ${mentor.seeds.length} seeds)`,
   });
   return mentor;
+}
+
+/**
+ * The user's verdict on a seed in use, returning to the asset (ADR-0020,
+ * Consequences: "the Pilot evaluates → evidence returns to the seed").
+ * Explicit governance only — nothing is ever inferred from silence.
+ */
+export function recordSeedEvidenceGoverned(
+  projectId: string,
+  seedId: string,
+  kind: "supporting" | "contradicting",
+  note: string,
+  scripted = false,
+): GuruSeed {
+  const project = getProject(projectId);
+  const seed = recordSeedEvidence(seedId, { kind, note, project: projectId });
+  event(project, "pilot", "seed_evidence", scripted, {
+    seedId,
+    note: `${kind === "supporting" ? "reforçou" : "contradisse"}: ${note}`,
+  });
+  return seed;
 }
 
 // ---------------------------------------------------------------------------

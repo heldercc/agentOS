@@ -14,7 +14,14 @@
 //     retired/<id>.yaml
 //     index/  (derived, regenerable)
 
-import { existsSync, mkdirSync, readdirSync, renameSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  renameSync,
+  writeFileSync,
+} from "node:fs";
 import { resolve } from "node:path";
 import YAML from "yaml";
 
@@ -262,6 +269,42 @@ export function recordSeedApplication(seedId: string, app: SeedApplication): voi
   if (!seed) return;
   seed.applied_in.push(app);
   writeYaml(resolve(seedDir(seed), "seed.yaml"), seed);
+}
+
+/** One line of the seed's append-only evidence file. */
+export interface SeedEvidenceEntry {
+  ts: string;
+  kind: "supporting" | "contradicting";
+  note: string;
+  project?: string;
+  workOrder?: string;
+}
+
+/**
+ * The user's judgement returning to the asset (ADR-0020, Consequences):
+ * a legible line on the seed record itself plus a full entry in the seed's
+ * append-only evidence.jsonl. Only the user grades a seed -- the Kernel
+ * never marks its own homework.
+ */
+export function recordSeedEvidence(
+  seedId: string,
+  args: { kind: "supporting" | "contradicting"; note: string; project?: string; workOrder?: string },
+): GuruSeed {
+  const seed = getSeed(seedId);
+  if (!seed) throw new Error(`unknown admitted seed ${seedId}`);
+  const entry: SeedEvidenceEntry = {
+    ts: new Date().toISOString(),
+    kind: args.kind,
+    note: args.note,
+    ...(args.project ? { project: args.project } : {}),
+    ...(args.workOrder ? { workOrder: args.workOrder } : {}),
+  };
+  seed.evidence[args.kind].push(
+    `${entry.ts.slice(0, 10)} ${args.note}${args.project ? ` (${args.project})` : ""}`,
+  );
+  writeYaml(resolve(seedDir(seed), "seed.yaml"), seed);
+  appendFileSync(resolve(seedDir(seed), "evidence.jsonl"), JSON.stringify(entry) + "\n", "utf8");
+  return seed;
 }
 
 // ---------------------------------------------------------------------------

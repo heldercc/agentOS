@@ -37,6 +37,7 @@ import {
   readSurfaces,
   readWorkOrders,
   refineOption,
+  recordSeedEvidenceGoverned,
   runCandidate,
   runConsult,
   runDecisionSurface,
@@ -128,6 +129,7 @@ function stateView(projectId: string): unknown {
     iteration: a.iteration,
     agentId: a.agentId,
     chars: a.chars,
+    seeds: a.seeds ?? null,
     content: a.iteration === project.iteration ? readText(a.path).slice(0, 6000) : null,
   }));
   const events = readEvents(projectId).slice(-25).reverse();
@@ -275,6 +277,21 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
       b["seedId"] ?? "",
       b["decision"] === "admit" ? "admit" : "reject",
       b["editedRule"]?.trim() || undefined,
+    );
+    json(res, 200, { ok: true });
+    return;
+  }
+  if (req.method === "POST" && url.pathname === "/api/hi/seed/evidence") {
+    const b = await body(req);
+    if (!b["note"]?.trim()) {
+      json(res, 400, { error: "a evidência precisa da tua nota — é ela que volta ao ativo" });
+      return;
+    }
+    recordSeedEvidenceGoverned(
+      b["project"] ?? "",
+      b["seedId"] ?? "",
+      b["kind"] === "contradicting" ? "contradicting" : "supporting",
+      b["note"].trim(),
     );
     json(res, 200, { ok: true });
     return;
@@ -814,6 +831,14 @@ function agoraBody(s) {
     s.artifacts.forEach(function (a) {
       h += "<details" + (a.content ? " open" : "") + "><summary>it-" + a.iteration + " · " +
         esc(a.agentId) + " · " + a.chars + " chars</summary>";
+      if (a.seeds && a.seeds.length) {
+        h += "<div>";
+        a.seeds.forEach(function (x) {
+          h += '<span class="xchip" title="' + esc(x.reason) + '">🧠 ' + esc(x.title) + " v" + x.version +
+            (x.mentorTitle ? " · " + esc(x.mentorTitle) : "") + "</span>";
+        });
+        h += '<span class="kv" style="font-size:11px"> inteligência humana que moldou este artefacto</span></div>';
+      }
       if (a.content) h += "<pre>" + esc(a.content) + "</pre>";
       else h += '<div class="kv">de uma iteração anterior — <a style="color:var(--acc);cursor:pointer" ' +
         'onclick="viewArtifact(' + a.iteration + ',\\'' + esc(a.agentId) + '\\', this)">ver</a></div>';
@@ -859,6 +884,7 @@ var LBL = {
   seed_admitted: "GuruSeed admitida por mim",
   seed_rejected: "GuruSeed rejeitada por mim",
   seed_candidate_extracted: "O refinamento gerou uma GuruSeed candidata",
+  seed_evidence: "A minha evidência voltou à GuruSeed",
   mentor_saved: "Mentor guardado/evoluído",
   decision_opened: "Superfície de decisão aberta",
   option_refined: "Refinei uma opção",
@@ -934,6 +960,21 @@ function seedCard(s, isCandidate) {
     h += "</div></details>";
   } else {
     h += '<div class="kv">ainda não aplicada</div>';
+  }
+  if (!isCandidate && s.status === "admitted") {
+    var sup = (s.evidence && s.evidence.supporting) || [];
+    var con = (s.evidence && s.evidence.contradicting) || [];
+    if (sup.length || con.length) {
+      h += "<details><summary class='kv'>evidência: " + sup.length + " a favor · " +
+        con.length + " contra</summary><div class='kv'>";
+      sup.forEach(function (e) { h += "✓ " + esc(e) + "<br>"; });
+      con.forEach(function (e) { h += "✗ " + esc(e) + "<br>"; });
+      h += "</div></details>";
+    }
+    h += '<label>O teu veredicto sobre esta seed em uso — a evidência volta ao ativo</label>' +
+      '<div class="row"><input id="evn-' + esc(s.id) + '" class="grow" placeholder="ex.: o artefacto ganhou com esta regra">' +
+      '<button class="ghost" onclick="seedEvidence(\\'' + esc(s.id) + '\\',\\'supporting\\')">Reforçou ✓</button>' +
+      '<button class="danger" onclick="seedEvidence(\\'' + esc(s.id) + '\\',\\'contradicting\\')">Contradisse ✗</button></div>';
   }
   if (isCandidate) {
     h += '<label>Editar a regra antes de admitir (opcional — a última palavra é tua)</label>' +
@@ -1015,6 +1056,11 @@ function addSeed() {
 function decideSeed(id, d) {
   var edited = $("ed-" + id) ? $("ed-" + id).value : "";
   post("/api/hi/seed/decide", { project: projectId, seedId: id, decision: d, editedRule: edited })
+    .then(loadHi).catch(function (e) { alert(e.message); });
+}
+function seedEvidence(id, kind) {
+  var n = $("evn-" + id);
+  post("/api/hi/seed/evidence", { project: projectId, seedId: id, kind: kind, note: n ? n.value : "" })
     .then(loadHi).catch(function (e) { alert(e.message); });
 }
 function editMentor(id) {
