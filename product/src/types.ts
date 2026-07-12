@@ -102,7 +102,15 @@ export interface RosterFile {
   workOrderId: string;
 }
 
-export type WorkOrderKind = "roster" | "consult" | "reconsult" | "synthesize" | "execute";
+export type WorkOrderKind =
+  | "roster"
+  | "consult"
+  | "reconsult"
+  | "synthesize"
+  | "execute"
+  | "option"
+  | "refine"
+  | "recommend";
 
 export interface WorkOrderRecord {
   id: string;
@@ -168,6 +176,52 @@ export interface ApprovedState {
   state: ProjectStateDoc;
 }
 
+/** One GuruSeed reference on an option — who shaped it and why. */
+export interface OptionSeedRef {
+  id: string;
+  version: number;
+  reason: string;
+  mentorId?: string;
+  mentorTitle?: string;
+}
+
+/** One genuinely distinct alternative on a Decision Surface, versioned. */
+export interface OptionRecord {
+  id: string;
+  version: number;
+  title: string;
+  direction: string;
+  description: string;
+  benefits: string;
+  tradeoffs: string;
+  assumptions: string[];
+  seeds: OptionSeedRef[];
+  workOrderId: string;
+  /** Refinements derive versions; the original is never overwritten. */
+  parent?: { id: string; version: number };
+  refinement?: string;
+  status: "candidate" | "selected" | "rejected";
+}
+
+/**
+ * The Kernel's governed presentation of one consequential choice
+ * (GOVERNANCE-INTERACTION-MODEL, ADR-0020 §5). Only the Kernel addresses
+ * the Pilot through a Decision Surface.
+ */
+export interface DecisionSurface {
+  id: string;
+  projectId: string;
+  iteration: number;
+  decision: string;
+  why: string;
+  options: OptionRecord[];
+  recommendation: { optionId: string; reason: string } | null;
+  status: "open" | "decided";
+  selected?: { optionId: string; version: number };
+  createdAt: string;
+  decidedAt?: string;
+}
+
 /**
  * One governance or movement event, appended to the project's evidence log
  * (JSONL, append-only). Every Pilot click and every Kernel movement is an
@@ -194,11 +248,22 @@ export interface EvidenceEvent {
     | "pilot_note"
     | "expertise_added"
     | "expertise_admitted"
-    | "expertise_discarded";
+    | "expertise_discarded"
+    | "seed_candidate_added"
+    | "seed_admitted"
+    | "seed_rejected"
+    | "seed_candidate_extracted"
+    | "mentor_saved"
+    | "decision_opened"
+    | "option_refined"
+    | "option_selected";
   workOrderId?: string;
   agentId?: string;
   questionId?: string;
   expertiseId?: string;
+  seedId?: string;
+  dsId?: string;
+  optionId?: string;
   note?: string;
   effortLevel?: string;
   scripted: boolean;

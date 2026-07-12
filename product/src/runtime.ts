@@ -147,6 +147,50 @@ export class FakeRuntime implements Runtime {
           `# Fake artifact\n\nDeterministic execution artifact (input chars: ${seen}).\n` +
           `The real work arrives when the cli or mailbox runtime runs.\n`
         );
+      case "option": {
+        const angle = /angle:\s*([a-z0-9-]+)/.exec(args.prompt)?.[1] ?? "generic";
+        return (
+          `Fake option from angle ${angle} (input chars: ${seen}).\n\n` +
+          "```json\n" +
+          JSON.stringify({
+            title: `Caminho ${angle}`,
+            direction: `direction-${angle}`,
+            description: `A deterministic, genuinely distinct option produced from the ${angle} angle.`,
+            benefits: `strongest on the ${angle} dimension`,
+            tradeoffs: `weakest away from the ${angle} dimension`,
+            assumptions: [`the ${angle} angle applies to this project`],
+          }) +
+          "\n```\n"
+        );
+      }
+      case "refine": {
+        const instruction =
+          /refinement instruction:\s*(.+)/.exec(args.prompt)?.[1]?.trim() ?? "unchanged";
+        return (
+          `Fake refined option (input chars: ${seen}).\n\n` +
+          "```json\n" +
+          JSON.stringify({
+            title: "Caminho refinado",
+            direction: "direction-refined",
+            description: `The original option, adjusted per: ${instruction}`,
+            benefits: "keeps the original strength, honors the refinement",
+            tradeoffs: "same as the original",
+            assumptions: [`the refinement "${instruction}" preserves intent`],
+          }) +
+          "\n```\n"
+        );
+      }
+      case "recommend": {
+        const first = /option-[a-z0-9]+/.exec(args.prompt)?.[0] ?? "option-a";
+        return (
+          "```json\n" +
+          JSON.stringify({
+            optionId: first,
+            reason: "deterministic fake recommendation: the first option on the table",
+          }) +
+          "\n```\n"
+        );
+      }
     }
   }
 }

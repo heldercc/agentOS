@@ -8,26 +8,32 @@ import { existsSync, rmSync } from "node:fs";
 import { readEvents } from "../evidence.js";
 import { collectMeterSamples, probeEffort } from "../effort.js";
 import {
-  addExpertiseGoverned,
+  addCandidateSeedGoverned,
   advanceIteration,
   answerQuestion,
   decideCandidate,
-  decideExpertiseGoverned,
+  decideSeedGoverned,
   getProject,
   initProject,
   openQuestions,
   readApproved,
   readQuestions,
   readRoster,
+  readSurfaces,
   readWorkOrders,
+  refineOption,
   runCandidate,
   runConsult,
+  runDecisionSurface,
   runExecute,
+  saveMentorGoverned,
+  selectOption,
   stageOf,
   storyOf,
   topOpenQuestion,
 } from "../kernel.js";
-import { applicableExpertise, readExpertise } from "../expertise.js";
+import { getCandidate, getSeed } from "../hi.js";
+import { resolveSeeds } from "../resolver.js";
 import { buildActual } from "../effort.js";
 import { projectDir, WORKSPACE_DIR } from "../paths.js";
 import { abs, readJson, readText, writeArtifactOnce } from "../stores.js";
@@ -50,6 +56,12 @@ const runtime = new FakeRuntime();
 
 async function main(): Promise<void> {
   console.log("product shell smoke — the 13-step loop on the fake runtime\n");
+
+  // The smoke runs against an ISOLATED Human Intelligence library — scripted
+  // seeds must never enter the owner's real one (hi.ts reads this per call).
+  const smokeHi = abs(WORKSPACE_DIR, "..", "smoke-hi");
+  if (existsSync(smokeHi)) rmSync(smokeHi, { recursive: true, force: true });
+  process.env["PRODUCT_HI_DIR"] = smokeHi;
 
   // Real meters, if any exist, must be exactly as many after the smoke:
   // scripted work never feeds the Effort Probe.
@@ -209,26 +221,41 @@ async function main(): Promise<void> {
   check("13. iteration advanced", advanced.iteration === 2);
   check("13b. stage returns to consult", stageOf(project.id) === "consult");
 
-  // ADR-0019 — expertise is the durable asset: the user's judgement enters
-  // the store as a candidate, is admitted by the user, and from then on the
-  // Kernel schedules it into every applicable work order, visibly.
-  const x = addExpertiseGoverned(
+  // ADR-0020 — the Human Intelligence slice: the user's judgement enters as
+  // a candidate GuruSeed, is admitted by the user, composes into a Mentor,
+  // and from then on the Seed Resolver schedules it into every applicable
+  // work order — visibly, with the trail on the asset itself.
+  const seed = addCandidateSeedGoverned(
     project.id,
     {
-      reach: "project",
       title: "Prefer the shortest honest option",
-      body: "When two options are equal, the shorter one wins.",
-      tags: [],
+      rule: "When two options are equal, the shorter one wins.",
+      why: "brevity is a durable preference of this owner",
+      domains: [],
+      projectLocal: false,
       provenanceNote: "smoke: the owner's own hand",
     },
     true,
   );
-  check("19a. expertise enters as candidate", x.status === "candidate");
+  check("20a. seed enters as candidate", seed.status === "candidate");
   check(
-    "19b. candidate expertise is never applied",
-    applicableExpertise(project.id, []).every((e) => e.id !== x.id),
+    "20b. candidate seeds are never resolved",
+    resolveSeeds({ projectId: project.id, agentTags: [] }).every(
+      (r) => r.seed.id !== seed.id,
+    ),
   );
-  decideExpertiseGoverned(project.id, x.id, "admit", true);
+  decideSeedGoverned(project.id, seed.id, "admit", undefined, true);
+  const mentor = saveMentorGoverned(
+    project.id,
+    {
+      title: "Smoke Mentor",
+      persona: "brevity above all",
+      seedIds: [seed.id],
+      selectionNotes: ["prefer project-local seeds when relevant"],
+    },
+    true,
+  );
+  check("20c. mentor composed from the admitted seed", mentor.seeds.length === 1);
   await runConsult({ projectId: project.id, level: "minimal", runtime, scripted: true });
   const it2wo = readWorkOrders(project.id, 2).find((w) => w.kind === "consult");
   const it2manifest = it2wo
@@ -244,38 +271,106 @@ async function main(): Promise<void> {
       )
     : null;
   check(
-    "19c. admitted expertise entered the next consult's manifest with a reason",
+    "20d. the Resolver put the seed in the consult manifest with a reason",
     it2manifest?.elements.some(
-      (el) => el.kind === "expertise" && el.ref.id === x.id && el.selectionReason !== "",
+      (el) => el.kind === "expertise" && el.ref.id === seed.id && el.selectionReason !== "",
     ) === true,
   );
   check(
-    "19d. the application trail recorded the work order",
-    readExpertise(project.id).find((e) => e.id === x.id)?.appliedIn.some(
-      (a) => a.workOrderId === it2wo?.id,
-    ) === true,
+    "20e. the application trail lives on the seed itself",
+    getSeed(seed.id)?.applied_in.some((a) => a.workOrder === it2wo?.id) === true,
   );
 
-  // The story (ADR-0019 §3): the whole project navigable from disk.
+  // The Decision Surface slice (GOVERNANCE-INTERACTION-MODEL): options,
+  // refinement with lineage, selection folding into the candidate state.
+  const ds = await runDecisionSurface({
+    projectId: project.id,
+    level: "minimal",
+    runtime,
+    scripted: true,
+  });
+  check(
+    "20f. at least two genuinely distinct options",
+    ds.options.length >= 2 &&
+      new Set(ds.options.map((o) => o.direction)).size === ds.options.length,
+  );
+  check(
+    "20g. the mentor's voice is attributed on its option",
+    ds.options.some((o) => o.seeds.some((s) => s.mentorId === mentor.id)),
+  );
+  check("20h. stage is decide while the surface is open", stageOf(project.id) === "decide");
+  const firstOption = ds.options[0]?.id ?? "option-a";
+  const { option: refined, candidateSeed } = await refineOption({
+    projectId: project.id,
+    dsId: ds.id,
+    optionId: firstOption,
+    instruction: "menos dramático, mais físico",
+    runtime,
+    scripted: true,
+  });
+  check(
+    "20i. refinement created v2 and preserved the original",
+    refined.version === 2 &&
+      refined.parent?.version === 1 &&
+      readSurfaces(project.id)[0]?.options.filter((o) => o.id === firstOption).length === 2,
+  );
+  check(
+    "20j. the refinement extracted a candidate seed for governance",
+    getCandidate(candidateSeed.id) !== null,
+  );
+  const decided = selectOption(project.id, ds.id, firstOption, 2, true);
+  check(
+    "20k. the Pilot's selection closes the surface on the refined version",
+    decided.status === "decided" && decided.selected?.version === 2,
+  );
+  check("20l. stage moves to candidate", stageOf(project.id) === "candidate");
+  await runCandidate({ projectId: project.id, level: "minimal", runtime, scripted: true });
+  const synthWo = readWorkOrders(project.id, 2)
+    .filter((w) => w.kind === "synthesize")
+    .pop();
+  const synthManifest = synthWo
+    ? readJson<ContextManifest>(
+        abs(
+          projectDir(project.id),
+          "iterations",
+          "it-002",
+          "workorders",
+          synthWo.id,
+          "manifest.json",
+        ),
+      )
+    : null;
+  check(
+    "20m. the decided surface is authoritative context for the candidate",
+    synthManifest?.elements.some((el) => el.ref.id === ds.id) === true,
+  );
+
+  // The story: the whole project, including the new lineage, from disk.
   const story = storyOf(project.id);
   const flat = story.iterations.flatMap((i) => i.items);
-  check("19e. story opens with the founding intent", story.intent.name === "Smoke Loop");
-  check("19f. story spans both iterations", story.iterations.length >= 2);
+  check("20n. story opens with the founding intent", story.intent.name === "Smoke Loop");
   check(
-    "19g. contributions carry mandate + output (provenance, not reasoning)",
+    "20o. contributions carry mandate + output (provenance, not reasoning)",
     flat.some((i) => i.action === "consulted" && i.mandate && i.output),
   );
   check(
-    "19h. a contribution shows the expertise it received and why",
-    flat.some((i) => i.expertise?.some((e) => e.id === x.id && e.reason !== "")),
+    "20p. a contribution shows the seed it received and why",
+    flat.some((i) => i.expertise?.some((e) => e.id === seed.id && e.reason !== "")),
   );
   check(
-    "19i. governance moments are in the story",
+    "20q. the full decision lineage is in the story",
+    ["decision_opened", "option_refined", "seed_candidate_extracted", "option_selected"].every(
+      (a) => flat.some((i) => i.action === a),
+    ),
+  );
+  check(
+    "20r. governance moments are in the story",
     flat.some((i) => i.action === "state_approved") &&
-      flat.some((i) => i.action === "expertise_admitted"),
+      flat.some((i) => i.action === "seed_admitted") &&
+      flat.some((i) => i.action === "mentor_saved"),
   );
   check(
-    "19j. the interview is in the story with question and answer",
+    "20s. the interview is in the story with question and answer",
     flat.some((i) => i.action === "question_answered" && i.questionText && i.answer),
   );
 

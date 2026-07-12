@@ -18,30 +18,41 @@ import {
   type EffortLevel,
 } from "../effort.js";
 import {
-  addExpertiseGoverned,
+  addCandidateSeedGoverned,
   advanceIteration,
   answerQuestion,
   decideCandidate,
-  decideExpertiseGoverned,
+  decideSeedGoverned,
   getProject,
   initProject,
   listArtifacts,
   listProjects,
   openQuestions,
+  openSurface,
   addPilotNote,
   readCandidate,
   readApproved,
   readQuestions,
   readRoster,
+  readSurfaces,
   readWorkOrders,
+  refineOption,
   runCandidate,
   runConsult,
+  runDecisionSurface,
   runExecute,
+  saveMentorGoverned,
+  selectOption,
   stageOf,
   storyOf,
   topOpenQuestion,
 } from "../kernel.js";
-import { readExpertise, SHARED_ID } from "../expertise.js";
+import {
+  listCandidates,
+  listMentors,
+  listSeeds,
+  migrateLegacyExpertise,
+} from "../hi.js";
 import { iterationDir, MAILBOX_DIR, projectDir, WORKSPACE_DIR } from "../paths.js";
 import { resolveRuntime } from "../runtime.js";
 import { abs, readText, writeJson } from "../stores.js";
@@ -49,6 +60,14 @@ import { abs, readText, writeJson } from "../stores.js";
 const PORT = 4900;
 const RUNTIME_NAME = process.env["PRODUCT_RUNTIME"] ?? "cli";
 const runtime = resolveRuntime(RUNTIME_NAME, { mailboxDir: MAILBOX_DIR });
+
+// One-time, mechanical, provenance-preserving (ADR-0020 §9).
+try {
+  const n = migrateLegacyExpertise();
+  if (n > 0) console.log(`migrated ${n} ADR-0019 expertise record(s) into the HI library`);
+} catch (e) {
+  console.error("legacy expertise migration failed:", e);
+}
 
 // ---------------------------------------------------------------------------
 // One in-flight operation per project — honest for a Beta: the loop is
@@ -88,6 +107,10 @@ function plannedCalls(projectId: string, op: string, level: EffortLevel): number
   if (op === "candidate") return 1;
   if (op === "execute") {
     return roster ? Math.min(roster.agents.length, spec.maxAgents) : spec.maxAgents;
+  }
+  if (op === "decision") {
+    const options = Math.max(2, Math.min(spec.maxAgents, 4));
+    return options + (level === "minimal" ? 0 : 1); // +1 for the recommendation
   }
   return 1;
 }
@@ -133,6 +156,8 @@ function stateView(projectId: string): unknown {
     },
     candidate: readCandidate(projectId),
     approved: readApproved(projectId),
+    surface: openSurface(projectId),
+    decidedSurfaces: readSurfaces(projectId).filter((d) => d.status === "decided").length,
     artifacts,
     workOrders: readWorkOrders(projectId, project.iteration),
     events,
@@ -218,35 +243,88 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     json(res, 200, storyOf(q("project")));
     return;
   }
-  if (req.method === "GET" && url.pathname === "/api/expertise") {
+  if (req.method === "GET" && url.pathname === "/api/hi") {
     json(res, 200, {
-      project: readExpertise(q("project")),
-      shared: readExpertise(SHARED_ID),
+      seeds: listSeeds(),
+      candidates: listCandidates(),
+      mentors: listMentors(),
     });
     return;
   }
-  if (req.method === "POST" && url.pathname === "/api/expertise") {
+  if (req.method === "POST" && url.pathname === "/api/hi/seed") {
     const b = await body(req);
-    if (!b["title"]?.trim() || !b["body"]?.trim()) {
-      json(res, 400, { error: "título e corpo são obrigatórios" });
+    if (!b["title"]?.trim() || !b["rule"]?.trim()) {
+      json(res, 400, { error: "título e regra são obrigatórios" });
       return;
     }
-    const record = addExpertiseGoverned(b["project"] ?? "", {
-      reach: b["reach"] === "reusable" ? "reusable" : "project",
+    const seed = addCandidateSeedGoverned(b["project"] ?? "", {
       title: b["title"],
-      body: b["body"],
-      tags: (b["tags"] ?? "").split(",").map((t) => t.trim()).filter((t) => t !== ""),
-      provenanceNote: b["provenanceNote"]?.trim() || "adicionada à mão na Biblioteca",
+      rule: b["rule"],
+      why: b["why"]?.trim() || "registada à mão na Biblioteca",
+      domains: (b["domains"] ?? "").split(",").map((t) => t.trim()).filter((t) => t !== ""),
+      projectLocal: b["reach"] === "project",
+      provenanceNote: "registada à mão na Biblioteca de Inteligência Humana",
     });
-    json(res, 200, { id: record.id });
+    json(res, 200, { id: seed.id });
     return;
   }
-  if (req.method === "POST" && url.pathname === "/api/expertise/decide") {
+  if (req.method === "POST" && url.pathname === "/api/hi/seed/decide") {
     const b = await body(req);
-    decideExpertiseGoverned(
+    decideSeedGoverned(
       b["project"] ?? "",
-      b["expertiseId"] ?? "",
-      b["decision"] === "admit" ? "admit" : "discard",
+      b["seedId"] ?? "",
+      b["decision"] === "admit" ? "admit" : "reject",
+      b["editedRule"]?.trim() || undefined,
+    );
+    json(res, 200, { ok: true });
+    return;
+  }
+  if (req.method === "POST" && url.pathname === "/api/hi/mentor") {
+    const b = await body(req);
+    if (!b["title"]?.trim()) {
+      json(res, 400, { error: "o Mentor precisa de um nome" });
+      return;
+    }
+    const mentor = saveMentorGoverned(b["project"] ?? "", {
+      ...(b["id"]?.trim() ? { id: b["id"].trim() } : {}),
+      title: b["title"],
+      persona: b["persona"] ?? "",
+      seedIds: (b["seedIds"] ?? "").split(",").map((s) => s.trim()).filter((s) => s !== ""),
+      selectionNotes: (b["notes"] ?? "").split("\n").map((n) => n.trim()).filter((n) => n !== ""),
+    });
+    json(res, 200, { id: mentor.id, version: mentor.version });
+    return;
+  }
+  if (req.method === "POST" && url.pathname === "/api/option/refine") {
+    const b = await body(req);
+    const projectId = b["project"] ?? "";
+    if (!b["instruction"]?.trim()) {
+      json(res, 400, { error: "o refinamento precisa da tua instrução" });
+      return;
+    }
+    const ok = startOp(projectId, "refine", async () => {
+      await refineOption({
+        projectId,
+        dsId: b["dsId"] ?? "",
+        optionId: b["optionId"] ?? "",
+        instruction: b["instruction"] ?? "",
+        runtime,
+      });
+    });
+    if (!ok) {
+      json(res, 409, { error: "já existe uma operação em curso neste projeto" });
+      return;
+    }
+    json(res, 200, { started: "refine" });
+    return;
+  }
+  if (req.method === "POST" && url.pathname === "/api/option/select") {
+    const b = await body(req);
+    selectOption(
+      b["project"] ?? "",
+      b["dsId"] ?? "",
+      b["optionId"] ?? "",
+      Number(b["version"] ?? 1),
     );
     json(res, 200, { ok: true });
     return;
@@ -274,6 +352,8 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
         await runConsult({ projectId, level, runtime });
       } else if (op === "candidate") {
         await runCandidate({ projectId, level, runtime });
+      } else if (op === "decision") {
+        await runDecisionSurface({ projectId, level, runtime });
       } else if (op === "execute") {
         const estimate = probeEffort({
           workspaceDir: WORKSPACE_DIR,
@@ -500,7 +580,7 @@ function load() {
       // place — no "a carregar…" flash, no eaten interactions.
       if (view === "agora") render();
       else if (view === "historia") loadStory();
-      else loadXp();
+      else loadHi();
     })
     .catch(function () { /* poll again */ });
 }
@@ -558,13 +638,18 @@ function primaryCard() {
       '<label>A tua resposta</label><textarea id="answer"></textarea>' +
       '<div style="margin-top:10px"><button onclick="answer(\\'' + esc(t.id) + '\\')">Responder</button></div>' +
       '<div class="kv" style="margin-top:6px">Ao responder, os agentes que perguntaram reconsultam automaticamente.</div></div>';
+  } else if (s.stage === "decide" && s.surface) {
+    h = decisionSurfaceCard(s.surface);
   } else if (s.stage === "candidate") {
     var rej = s.candidate && s.candidate.status === "rejected" && s.candidate.iteration === s.project.iteration;
-    h = '<div class="card"><h2>3 · Estado candidato</h2><div class="kv">' +
+    h = '<div class="card"><h2>3 · Decidir e condensar</h2><div class="kv">' +
       (rej ? "Rejeitaste o candidato anterior — o Kernel reconstrói com a tua nota." :
-        "Sem perguntas em aberto. O Kernel condensa tudo no menor estado suficiente do projeto.") +
+        "Sem perguntas em aberto. Podes pedir opções concretas (o Kernel mastiga e tu escolhes) " +
+        "ou condensar já o estado do projeto.") +
       "</div>" + levelSelector("candidate") +
-      '<div style="margin-top:12px"><button onclick="op(\\'candidate\\')">Construir estado candidato</button></div></div>';
+      '<div class="row" style="margin-top:12px">' +
+      '<button onclick="op(\\'decision\\')">Quero opções (superfície de decisão)</button>' +
+      '<button class="ghost" onclick="op(\\'candidate\\')">Construir estado candidato</button></div></div>';
   } else if (s.stage === "approve" && s.candidate) {
     h = '<div class="card"><h2>4 · Aprovas este estado?</h2>' + stateDoc(s.candidate.state) +
       '<label>Nota (obrigatória se rejeitares — é a tua direção)</label><textarea id="dnote"></textarea>' +
@@ -585,6 +670,66 @@ function primaryCard() {
   return h;
 }
 
+// ---------------- a superfície de decisão ----------------
+function latestOptions(surface) {
+  var byId = {};
+  surface.options.forEach(function (o) {
+    if (!byId[o.id] || o.version > byId[o.id].version) byId[o.id] = o;
+  });
+  return Object.keys(byId).sort().map(function (k) { return byId[k]; });
+}
+
+function decisionSurfaceCard(ds) {
+  var h = '<div class="card"><h2>Decisão governada</h2>' +
+    '<div class="q">' + esc(ds.decision) + "</div>" +
+    '<div class="kv">' + esc(ds.why) + " · O Kernel mastigou; a escolha é tua. " +
+    "Podes selecionar, ou refinar uma opção com uma frase antes de selecionar.</div></div>";
+  if (ds.recommendation) {
+    h += '<div class="card" style="border-color:var(--warn)"><div class="kv">' +
+      '<b style="color:var(--warn)">Recomendação do Kernel:</b> ' +
+      esc(ds.recommendation.optionId) + " — " + esc(ds.recommendation.reason) + "</div></div>";
+  }
+  latestOptions(ds).forEach(function (o) {
+    var mentors = {};
+    (o.seeds || []).forEach(function (s) { if (s.mentorTitle) mentors[s.mentorTitle] = true; });
+    var rec = ds.recommendation && ds.recommendation.optionId === o.id;
+    h += '<div class="card"' + (rec ? ' style="border-color:var(--acc)"' : "") + ">" +
+      "<h2>" + esc(o.title) + (rec ? " ★" : "") +
+      ' <span class="badge">' + esc(o.direction) + "</span>" +
+      (o.refinement ? ' <span class="badge acc">v' + o.version + " · refinada</span>" : "") + "</h2>" +
+      "<div>" + esc(o.description) + "</div>" +
+      (o.benefits ? '<div class="kv" style="margin-top:6px">A favor: ' + esc(o.benefits) + "</div>" : "") +
+      (o.tradeoffs ? '<div class="kv">Atenção: ' + esc(o.tradeoffs) + "</div>" : "") +
+      (o.refinement ? '<div class="kv">Refinamento aplicado: "' + esc(o.refinement) + '"</div>' : "");
+    if (Object.keys(mentors).length) {
+      h += "<div style='margin-top:6px'>";
+      Object.keys(mentors).forEach(function (m) {
+        h += '<span class="xchip">🎬 Mentor: ' + esc(m) + "</span>";
+      });
+      h += "</div>";
+    }
+    (o.seeds || []).forEach(function (s) {
+      h += '<span class="xchip" title="' + esc(s.reason) + '">🧠 ' + esc(s.id) + " v" + s.version + "</span>";
+    });
+    h += '<label>Refinar (uma frase chega — o resto mantém-se)</label>' +
+      '<div class="row"><input id="rf-' + esc(o.id) + '" class="grow" ' +
+      'placeholder="ex.: menos dramático, mantém o final">' +
+      '<button class="ghost" onclick="refine(\\'' + esc(ds.id) + '\\',\\'' + esc(o.id) + '\\')">Refinar</button>' +
+      '<button onclick="pick(\\'' + esc(ds.id) + '\\',\\'' + esc(o.id) + '\\',' + o.version + ')">Selecionar</button>' +
+      "</div></div>";
+  });
+  return h;
+}
+function refine(dsId, optionId) {
+  var v = $("rf-" + optionId).value;
+  post("/api/option/refine", { project: projectId, dsId: dsId, optionId: optionId, instruction: v })
+    .then(load).catch(function (e) { alert(e.message); });
+}
+function pick(dsId, optionId, version) {
+  post("/api/option/select", { project: projectId, dsId: dsId, optionId: optionId, version: String(version) })
+    .then(load).catch(function (e) { alert(e.message); });
+}
+
 function stateDoc(doc) {
   function li(a) { return a.length ? "<ul>" + a.map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ul>" : "<i class='kv'>—</i>"; }
   return '<dl class="stateDoc">' +
@@ -603,7 +748,7 @@ function tabsBar() {
       '" onclick="setView(\\'' + id + '\\')">' + label + "</button>";
   }
   return '<div class="tabs">' + t("agora", "Agora") + t("historia", "História") +
-    t("expertise", "Expertise") + "</div>";
+    t("hi", "Inteligência Humana") + "</div>";
 }
 function setView(v) { view = v; render(); }
 
@@ -620,7 +765,7 @@ function render() {
     h += '<div id="viewbox" class="kv">a carregar…</div>';
     app.innerHTML = h;
     if (view === "historia") loadStory();
-    if (view === "expertise") loadXp();
+    if (view === "hi") loadHi();
     return;
   }
   h += agoraBody(s);
@@ -709,7 +854,15 @@ var LBL = {
   pilot_note: "Nota minha ao Kernel",
   expertise_added: "Expertise registada (candidata)",
   expertise_admitted: "Expertise admitida por mim",
-  expertise_discarded: "Expertise descartada por mim"
+  expertise_discarded: "Expertise descartada por mim",
+  seed_candidate_added: "GuruSeed candidata registada",
+  seed_admitted: "GuruSeed admitida por mim",
+  seed_rejected: "GuruSeed rejeitada por mim",
+  seed_candidate_extracted: "O refinamento gerou uma GuruSeed candidata",
+  mentor_saved: "Mentor guardado/evoluído",
+  decision_opened: "Superfície de decisão aberta",
+  option_refined: "Refinei uma opção",
+  option_selected: "Selecionei uma opção"
 };
 
 function tlItem(i) {
@@ -761,61 +914,128 @@ function loadStory() {
     });
 }
 
-// ---------------- expertise (a biblioteca do ativo durável) ----------------
-function xpCard(e) {
-  var h = '<div class="xp"><b>' + esc(e.title) + '</b><span class="st ' + esc(e.status) + '">' +
-    esc(e.status) + '</span><span class="st">' + (e.reach === "reusable" ? "reutilizável" : "deste projeto") + "</span>";
-  if (e.tags.length) h += ' <span class="kv">âmbito: ' + esc(e.tags.join(", ")) + "</span>";
-  h += "<div style='margin-top:4px'>" + esc(e.body) + "</div>" +
-    '<div class="kv">proveniência: ' + esc(e.provenance.origin) + " — " + esc(e.provenance.note) + "</div>";
-  if (e.appliedIn.length) {
-    h += "<details><summary class='kv'>aplicada em " + e.appliedIn.length +
+// ---------------- inteligência humana (o ativo durável) ----------------
+function seedCard(s, isCandidate) {
+  var scope = (s.scope.projects.length ? "local: " + s.scope.projects.join(", ") : "reutilizável") +
+    (s.scope.domains.length ? " · domínios: " + s.scope.domains.join(", ") : " · universal");
+  var h = '<div class="xp"><b>🧠 ' + esc(s.title) + '</b><span class="st ' + esc(s.status) + '">' +
+    esc(s.status) + " v" + s.version + '</span> <span class="kv">' + esc(scope) + "</span>" +
+    "<div style='margin-top:4px'>" + esc(s.rule) + "</div>" +
+    (s.why ? '<div class="kv">porquê: ' + esc(s.why) + "</div>" : "") +
+    '<div class="kv">proveniência: ' + esc(s.provenance.origin) +
+    (s.provenance.note ? " — " + esc(s.provenance.note) : "") +
+    (s.provenance.admitted_at ? " · admitida " + esc(s.provenance.admitted_at.slice(0, 10)) : "") + "</div>";
+  if (s.applied_in && s.applied_in.length) {
+    h += "<details><summary class='kv'>aplicada em " + s.applied_in.length +
       " work orders</summary><div class='kv'>";
-    e.appliedIn.forEach(function (a) {
-      h += a.projectId + " · " + a.workOrderId + " · " + a.ts.slice(0, 16).replace("T", " ") + "<br>";
+    s.applied_in.forEach(function (a) {
+      h += esc(a.project) + " · " + esc(a.workOrder) + " · " + esc(a.ts.slice(0, 16).replace("T", " ")) + "<br>";
     });
     h += "</div></details>";
   } else {
     h += '<div class="kv">ainda não aplicada</div>';
   }
-  if (e.status === "candidate") {
-    h += '<div class="row" style="margin-top:8px">' +
-      '<button onclick="decideXp(\\'' + esc(e.id) + '\\',\\'admit\\')">Admitir</button>' +
-      '<button class="danger" onclick="decideXp(\\'' + esc(e.id) + '\\',\\'discard\\')">Descartar</button></div>';
+  if (isCandidate) {
+    h += '<label>Editar a regra antes de admitir (opcional — a última palavra é tua)</label>' +
+      '<textarea id="ed-' + esc(s.id) + '">' + esc(s.rule) + "</textarea>" +
+      '<div class="row" style="margin-top:8px">' +
+      '<button onclick="decideSeed(\\'' + esc(s.id) + '\\',\\'admit\\')">Admitir</button>' +
+      '<button class="danger" onclick="decideSeed(\\'' + esc(s.id) + '\\',\\'reject\\')">Rejeitar</button></div>';
   }
   return h + "</div>";
 }
 
-function loadXp() {
-  fetch("/api/expertise?project=" + encodeURIComponent(projectId))
+function mentorCard(m, seeds) {
+  var byId = {};
+  seeds.forEach(function (s) { byId[s.id] = s; });
+  var h = '<div class="xp"><b>🎬 ' + esc(m.title) + '</b><span class="st admitted">v' + m.version + "</span>" +
+    '<div class="kv">' + esc(m.persona) + "</div><div style='margin-top:4px'>";
+  m.seeds.forEach(function (p) {
+    var s = byId[p.id];
+    h += '<span class="xchip" title="' + esc(s ? s.rule : "") + '">🧠 ' + esc(s ? s.title : p.id) + "</span>";
+  });
+  h += "</div>" + (m.selection_notes.length ?
+    '<div class="kv">notas: ' + esc(m.selection_notes.join(" · ")) + "</div>" : "") +
+    '<div class="row" style="margin-top:8px"><button class="ghost" onclick="editMentor(\\'' +
+    esc(m.id) + '\\')">Editar / evoluir</button></div></div>';
+  return h;
+}
+
+var hiData = null;
+function loadHi() {
+  fetch("/api/hi")
     .then(function (r) { return r.json(); })
     .then(function (d) {
+      hiData = d;
       var box = $("viewbox");
-      if (!box || view !== "expertise") return;
-      var h = '<div class="card"><h2>Registar expertise (o teu julgamento, nas tuas palavras)</h2>' +
-        '<div class="kv">Candidata até TU a admitires. Depois de admitida, o Kernel agenda-a para ' +
-        "todos os agentes cujo âmbito coincida — e cada aplicação fica registada.</div>" +
-        '<label>Título</label><input id="xt">' +
-        '<label>O julgamento</label><textarea id="xb" placeholder="ex.: Nos brindes, a última frase nunca repete o nome dos noivos — já foi dito vinte vezes nessa noite."></textarea>' +
-        '<div class="row"><div class="grow"><label>Âmbito (tags, vírgulas; vazio = projeto inteiro)</label><input id="xg"></div>' +
-        '<div><label>Alcance</label><select id="xr"><option value="project">este projeto</option>' +
-        '<option value="reusable">reutilizável</option></select></div></div>' +
-        '<div style="margin-top:12px"><button onclick="addXp()">Registar candidata</button></div></div>';
-      h += '<div class="card"><h2>Deste projeto</h2>' +
-        (d.project.length ? d.project.map(xpCard).join("") : '<div class="kv">vazia — a biblioteca cresce com o teu julgamento, não com transcrições.</div>') + "</div>";
-      h += '<div class="card"><h2>Reutilizável (todos os projetos)</h2>' +
-        (d.shared.length ? d.shared.map(xpCard).join("") : '<div class="kv">vazia</div>') + "</div>";
+      if (!box || view !== "hi") return;
+      var h = '<div class="card"><h2>Mentores — julgamento humano com nome</h2>' +
+        '<div class="kv">Um Mentor não é um agente de IA: é a TUA inteligência composta ' +
+        "(GuruSeeds) que os papéis temporários carregam. Constróis, evoluis, e nas decisões " +
+        "vês qual Mentor sugeriu o quê.</div><div style='margin-top:8px'>" +
+        (d.mentors.length ? d.mentors.map(function (m) { return mentorCard(m, d.seeds); }).join("") :
+          '<div class="kv">ainda sem mentores — cria o primeiro em baixo.</div>') + "</div>" +
+        '<details id="mform"><summary style="color:var(--acc);cursor:pointer;margin-top:8px">Criar / editar Mentor</summary>' +
+        '<input type="hidden" id="mid">' +
+        '<label>Nome (ex.: Realizador de Ação Contida)</label><input id="mt">' +
+        '<label>Persona — a voz, numa linha</label><input id="mp" placeholder="ex.: contenção antes do impacto; consequência física antes do espetáculo">' +
+        '<label>GuruSeeds que compõem este Mentor</label><div id="mseeds">' +
+        d.seeds.filter(function (s) { return s.status === "admitted"; }).map(function (s) {
+          return '<label style="display:flex;gap:6px;align-items:center;margin:2px 0"><input type="checkbox" ' +
+            'value="' + esc(s.id) + '" style="width:auto"> ' + esc(s.title) + "</label>";
+        }).join("") + "</div>" +
+        '<label>Notas de seleção (uma por linha)</label><textarea id="mn"></textarea>' +
+        '<div style="margin-top:10px"><button onclick="saveMentor()">Guardar Mentor</button></div></details></div>';
+
+      var candidates = d.candidates;
+      h += '<div class="card"><h2>Candidatas — à espera do teu julgamento</h2>' +
+        (candidates.length ? candidates.map(function (s) { return seedCard(s, true); }).join("") :
+          '<div class="kv">nenhuma — candidatas nascem dos teus refinamentos, ou da tua mão em baixo.</div>') + "</div>";
+
+      h += '<div class="card"><h2>GuruSeeds admitidas</h2>' +
+        (d.seeds.length ? d.seeds.map(function (s) { return seedCard(s, false); }).join("") :
+          '<div class="kv">vazia — a biblioteca cresce com o teu julgamento, não com transcrições.</div>') + "</div>";
+
+      h += '<div class="card"><h2>Registar GuruSeed à mão</h2>' +
+        '<label>Título</label><input id="st">' +
+        '<label>A regra (o julgamento, nas tuas palavras)</label><textarea id="sr"></textarea>' +
+        '<label>Porquê</label><input id="sw">' +
+        '<div class="row"><div class="grow"><label>Domínios (vírgulas; vazio = universal)</label><input id="sd"></div>' +
+        '<div><label>Alcance</label><select id="sc"><option value="reusable">reutilizável</option>' +
+        '<option value="project">só este projeto</option></select></div></div>' +
+        '<div style="margin-top:10px"><button onclick="addSeed()">Registar candidata</button></div></div>';
       box.innerHTML = h;
     });
 }
-function addXp() {
-  post("/api/expertise", { project: projectId, title: $("xt").value, body: $("xb").value,
-    tags: $("xg").value, reach: $("xr").value })
-    .then(loadXp).catch(function (e) { alert(e.message); });
+function addSeed() {
+  post("/api/hi/seed", { project: projectId, title: $("st").value, rule: $("sr").value,
+    why: $("sw").value, domains: $("sd").value, reach: $("sc").value })
+    .then(loadHi).catch(function (e) { alert(e.message); });
 }
-function decideXp(id, d) {
-  post("/api/expertise/decide", { project: projectId, expertiseId: id, decision: d })
-    .then(loadXp).catch(function (e) { alert(e.message); });
+function decideSeed(id, d) {
+  var edited = $("ed-" + id) ? $("ed-" + id).value : "";
+  post("/api/hi/seed/decide", { project: projectId, seedId: id, decision: d, editedRule: edited })
+    .then(loadHi).catch(function (e) { alert(e.message); });
+}
+function editMentor(id) {
+  var m = hiData && hiData.mentors.filter(function (x) { return x.id === id; })[0];
+  if (!m) return;
+  $("mform").open = true;
+  $("mid").value = m.id;
+  $("mt").value = m.title;
+  $("mp").value = m.persona;
+  $("mn").value = m.selection_notes.join("\\n");
+  var pinned = {};
+  m.seeds.forEach(function (p) { pinned[p.id] = true; });
+  document.querySelectorAll("#mseeds input").forEach(function (cb) { cb.checked = !!pinned[cb.value]; });
+  $("mt").focus();
+}
+function saveMentor() {
+  var ids = [];
+  document.querySelectorAll("#mseeds input").forEach(function (cb) { if (cb.checked) ids.push(cb.value); });
+  post("/api/hi/mentor", { project: projectId, id: $("mid").value, title: $("mt").value,
+    persona: $("mp").value, seedIds: ids.join(","), notes: $("mn").value })
+    .then(loadHi).catch(function (e) { alert(e.message); });
 }
 
 function op(name) {

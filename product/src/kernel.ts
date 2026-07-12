@@ -16,18 +16,27 @@ import { appendEvent, readEvents } from "./evidence.js";
 import {
   clampAutoEffort,
   effortSpec,
+  levelIndex,
   type EffortLevel,
 } from "./effort.js";
 import {
-  addExpertise as addExpertiseRecord,
-  applicableExpertise,
-  decideExpertise,
-  expertiseFor,
-  ownerScopeOf,
-  recordApplication,
-  SHARED_ID,
-  type Expertise,
-} from "./expertise.js";
+  addCandidateSeed,
+  admitSeed,
+  listCandidates,
+  listSeeds,
+  recordSeedApplication,
+  rejectSeed,
+  saveMentor,
+  seedYamlPath,
+  type GuruSeed,
+  type Mentor,
+} from "./hi.js";
+import {
+  applicableMentors,
+  mentorSeeds,
+  resolveSeeds,
+  type ResolvedSeed,
+} from "./resolver.js";
 import { buildManifest, ContextBuilder, type AssembledContext } from "./manifest.js";
 import {
   artifactsDir,
@@ -42,8 +51,11 @@ import type {
   AgentRole,
   ApprovedState,
   CandidateState,
+  DecisionSurface,
   EvidenceEvent,
   MeterRecord,
+  OptionRecord,
+  OptionSeedRef,
   Project,
   ProjectStateDoc,
   QuestionNeed,
@@ -184,7 +196,14 @@ export function readWorkOrders(projectId: string, iteration: number): WorkOrderR
   return out;
 }
 
-export type Stage = "consult" | "interview" | "candidate" | "approve" | "execute" | "advance";
+export type Stage =
+  | "consult"
+  | "interview"
+  | "decide"
+  | "candidate"
+  | "approve"
+  | "execute"
+  | "advance";
 
 /** Where the loop stands — drives the shell's single primary action. */
 export function stageOf(projectId: string): Stage {
@@ -204,6 +223,9 @@ export function stageOf(projectId: string): Stage {
   );
   if (readRoster(projectId) === null || consults.length === 0) return "consult";
   if (openQuestions(projectId).length > 0) return "interview";
+  // An open Decision Surface outranks the candidate build: the selection is
+  // authoritative direction the next candidate must fold.
+  if (openSurface(projectId) !== null) return "decide";
   return "candidate";
 }
 
@@ -359,18 +381,15 @@ async function runWorkOrder(args: {
     "utf8",
   );
 
-  // The application trail (ADR-0019): every piece of admitted expertise that
-  // entered this context is recorded on the asset itself, automatically.
+  // The application trail (ADR-0020): every GuruSeed that entered this
+  // context is recorded on the asset itself, automatically.
   for (const el of args.ctx.elements) {
     if (el.kind !== "expertise") continue;
-    const scope = ownerScopeOf(args.project.id, el.ref.id);
-    if (scope) {
-      recordApplication(scope, el.ref.id, {
-        projectId: args.project.id,
-        workOrderId: woId,
-        ts: nowIso(),
-      });
-    }
+    recordSeedApplication(el.ref.id, {
+      project: args.project.id,
+      workOrder: woId,
+      ts: nowIso(),
+    });
   }
 
   const base: Omit<WorkOrderRecord, "status"> = {
@@ -485,27 +504,24 @@ function addPilotNotes(b: ContextBuilder, project: Project): void {
 }
 
 /**
- * A runtime agent is a composition (FOUNDATION-CORRECTION, ADR-0019):
- * mandate + relevant project context + applicable human expertise + effort
- * budget. Admitted judgement whose scope overlaps the agent's tags enters
- * here — BEFORE other optional elements, because under a tight budget the
- * owner's judgement outranks derived history. Untagged expertise applies
- * project-wide (pass no tags for kernel-level work orders).
+ * A runtime agent is a composition (FOUNDATION-CORRECTION, ADR-0020 §2):
+ * mandate + relevant project context + applicable human intelligence +
+ * effort budget. The Seed Resolver selects the admitted GuruSeeds — they
+ * enter BEFORE other optional elements, because under a tight budget the
+ * owner's judgement outranks derived history. Each entry carries the
+ * Resolver's reason (and Mentor attribution) into the manifest.
  */
 function addExpertise(b: ContextBuilder, project: Project, agentTags: string[]): void {
-  for (const e of applicableExpertise(project.id, agentTags)) {
+  for (const r of resolveSeeds({ projectId: project.id, agentTags })) {
     b.add({
       kind: "expertise",
-      id: e.id,
-      absPath:
-        e.reach === "reusable"
-          ? abs(WORKSPACE_DIR, "_shared", "expertise.json")
-          : abs(projectDir(project.id), "expertise.json"),
-      content: `${e.title}\n\n${e.body}`,
-      reason:
-        e.tags.length === 0
-          ? `admitted ${e.reach} expertise, project-wide scope`
-          : `admitted ${e.reach} expertise; scope [${e.tags.join(", ")}] matches the agent`,
+      id: r.seed.id,
+      absPath: seedYamlPath(r.seed),
+      content:
+        `${r.seed.title} (GuruSeed v${r.seed.version}` +
+        `${r.mentorTitle ? `, Mentor: ${r.mentorTitle}` : ""})\n\n` +
+        `Rule: ${r.seed.rule}\nWhy: ${r.seed.why}`,
+      reason: r.reason,
       required: false,
     });
   }
@@ -785,6 +801,26 @@ export async function runCandidate(args: {
   addApprovedState(b, project, true);
   addExpertise(b, project, []);
   addAnswers(b, project, true);
+  // Decided Decision Surfaces are authoritative direction (steps 9-10 of the
+  // interaction-model slice): the candidate folds every selection, with its
+  // refinement lineage visible.
+  for (const ds of readSurfaces(project.id).filter((d) => d.status === "decided")) {
+    const sel = ds.options.find(
+      (o) => o.id === ds.selected?.optionId && o.version === ds.selected?.version,
+    );
+    if (!sel) continue;
+    b.add({
+      kind: "pilot-note",
+      id: ds.id,
+      absPath: abs(projectDir(project.id), "decisions", `${ds.id}.json`),
+      content:
+        `Governed decision (${ds.id}): ${ds.decision}\n` +
+        `The user selected: ${sel.title} — ${sel.direction}\n${sel.description}` +
+        (sel.refinement ? `\nWith the user's refinement: ${sel.refinement}` : ""),
+      reason: "a decided Decision Surface is authoritative direction",
+      required: true,
+    });
+  }
   const prev = readCandidate(project.id);
   if (prev?.status === "rejected" && prev.rejectionNote) {
     b.add({
@@ -958,54 +994,474 @@ export function advanceIteration(projectId: string, scripted = false): Project {
 }
 
 // ---------------------------------------------------------------------------
-// Expertise governance (ADR-0019 §1): the store transitions live in
-// expertise.ts; these wrappers add what governance requires — the evidence
-// event, pilot actor, always. The Kernel schedules expertise; only the user
-// admits it.
+// Human Intelligence governance (ADR-0020): store transitions live in hi.ts;
+// these wrappers add what governance requires — the evidence event, pilot
+// actor, always. The Kernel schedules seeds; only the user admits them.
 
-export function addExpertiseGoverned(
+export function addCandidateSeedGoverned(
   projectId: string,
   args: {
-    reach: "project" | "reusable";
     title: string;
-    body: string;
-    tags: string[];
+    rule: string;
+    why: string;
+    domains: string[];
+    projectLocal: boolean;
     provenanceNote: string;
   },
   scripted = false,
-): Expertise {
+): GuruSeed {
   const project = getProject(projectId);
-  const record = addExpertiseRecord({
-    scopeId: args.reach === "reusable" ? SHARED_ID : projectId,
+  const seed = addCandidateSeed({
     title: args.title,
-    body: args.body,
-    tags: args.tags,
+    rule: args.rule,
+    why: args.why,
+    domains: args.domains,
+    projects: args.projectLocal ? [projectId] : [],
+    origin: "taught",
     provenanceNote: args.provenanceNote,
+    sourceProject: projectId,
   });
-  event(project, "pilot", "expertise_added", scripted, {
-    expertiseId: record.id,
-    note: record.title,
+  event(project, "pilot", "seed_candidate_added", scripted, {
+    seedId: seed.id,
+    note: seed.title,
   });
-  return record;
+  return seed;
 }
 
-export function decideExpertiseGoverned(
+export function decideSeedGoverned(
   projectId: string,
-  expertiseId: string,
-  decision: "admit" | "discard",
+  seedId: string,
+  decision: "admit" | "reject",
+  editedRule?: string,
   scripted = false,
 ): void {
   const project = getProject(projectId);
-  const scope = ownerScopeOf(projectId, expertiseId);
-  if (!scope) throw new Error(`unknown expertise ${expertiseId}`);
-  const record = decideExpertise(scope, expertiseId, decision);
-  event(
+  if (decision === "admit") {
+    const seed = admitSeed(seedId, editedRule);
+    event(project, "pilot", "seed_admitted", scripted, { seedId, note: seed.title });
+  } else {
+    rejectSeed(seedId);
+    event(project, "pilot", "seed_rejected", scripted, { seedId });
+  }
+}
+
+export function saveMentorGoverned(
+  projectId: string,
+  args: {
+    id?: string;
+    title: string;
+    persona: string;
+    seedIds: string[];
+    selectionNotes: string[];
+  },
+  scripted = false,
+): Mentor {
+  const project = getProject(projectId);
+  const mentor = saveMentor(args);
+  event(project, "pilot", "mentor_saved", scripted, {
+    note: `${mentor.title} (v${mentor.version}, ${mentor.seeds.length} seeds)`,
+  });
+  return mentor;
+}
+
+// ---------------------------------------------------------------------------
+// The Decision Surface (GOVERNANCE-INTERACTION-MODEL, ADR-0020 §5): the
+// Kernel chews the problem — resolves expertise, convenes distinct voices,
+// compares consequences — and surfaces one consequential choice with
+// genuinely distinct options, a recommendation, and refinement capability.
+// Options are versioned; originals are never overwritten; the whole lineage
+// is evidence.
+
+const OPTION_LETTERS = ["a", "b", "c", "d"] as const;
+
+const GENERIC_ANGLES: { id: string; hint: string }[] = [
+  { id: "economico", hint: "the most economical honest path — smallest effort that truly serves the intent" },
+  { id: "arrojado", hint: "the boldest, most distinctive path — what makes this unmistakably itself" },
+  { id: "seguro", hint: "the safest, most reversible path — minimal risk, easy to change later" },
+  { id: "sensorial", hint: "the most concrete, sensory path — what the audience directly feels" },
+];
+
+const OPTION_SYSTEM =
+  "You are one temporary specialist voice inside AgentOS, producing ONE " +
+  "concrete option for a governed decision. Your angle is given in context " +
+  "(the line starting with 'angle:'). Commit to that angle — the user will " +
+  "compare genuinely distinct alternatives, so do not hedge toward the " +
+  "middle. If Mentor seeds are in context, apply them faithfully and let " +
+  "them shape the option. Do not decide for the user; do not mention other " +
+  "options. End with exactly one fenced ```json block: {\"title\", " +
+  '"direction" (a 3-6 word slug of the underlying direction), ' +
+  '"description" (the concrete option, 4-8 sentences), "benefits" (one ' +
+  'sentence), "tradeoffs" (one sentence), "assumptions" (array of short ' +
+  "strings)}. " +
+  LANG_RULE;
+
+const REFINE_SYSTEM =
+  "You are refining ONE existing option inside AgentOS per the user's " +
+  "short instruction. Change ONLY what the instruction asks; preserve " +
+  "everything else — structure, direction, level of detail. The user must " +
+  "recognize the option they liked. End with exactly one fenced ```json " +
+  'block, same shape as the original: {"title", "direction", "description", ' +
+  '"benefits", "tradeoffs", "assumptions"}. ' +
+  LANG_RULE;
+
+const RECOMMEND_SYSTEM =
+  "You are the Kernel of AgentOS comparing the options on one Decision " +
+  "Surface against the project's approved state and founding intent. " +
+  "Recommend exactly one, with an honest one-sentence reason grounded in " +
+  "the state — never in your own taste. End with exactly one fenced " +
+  '```json block: {"optionId", "reason"}. ' +
+  LANG_RULE;
+
+function surfacesDir(projectId: string): string {
+  return abs(projectDir(projectId), "decisions");
+}
+
+export function readSurfaces(projectId: string): DecisionSurface[] {
+  const dir = surfacesDir(projectId);
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
+    .filter((f) => f.endsWith(".json"))
+    .sort()
+    .map((f) => readJson<DecisionSurface>(abs(dir, f)));
+}
+
+export function openSurface(projectId: string): DecisionSurface | null {
+  return readSurfaces(projectId).find((d) => d.status === "open") ?? null;
+}
+
+function writeSurface(ds: DecisionSurface): void {
+  writeJson(abs(surfacesDir(ds.projectId), `${ds.id}.json`), ds);
+}
+
+interface OptionParse {
+  title: string;
+  direction: string;
+  description: string;
+  benefits: string;
+  tradeoffs: string;
+  assumptions: string[];
+}
+
+function optionFrom(text: string): OptionParse | null {
+  const str = (v: unknown): string => (typeof v === "string" ? v : "");
+  for (const block of extractJsonBlocks(text).reverse()) {
+    const b = block as Partial<Record<keyof OptionParse, unknown>>;
+    if (typeof b !== "object" || b === null) continue;
+    if (typeof b.title !== "string" || typeof b.description !== "string") continue;
+    return {
+      title: b.title,
+      direction: str(b.direction) || "unnamed-direction",
+      description: b.description,
+      benefits: str(b.benefits),
+      tradeoffs: str(b.tradeoffs),
+      assumptions: Array.isArray(b.assumptions)
+        ? b.assumptions.filter((a): a is string => typeof a === "string")
+        : [],
+    };
+  }
+  return null;
+}
+
+function seedRefs(resolved: ResolvedSeed[]): OptionSeedRef[] {
+  return resolved.map((r) => ({
+    id: r.seed.id,
+    version: r.seed.version,
+    reason: r.reason,
+    ...(r.mentorId ? { mentorId: r.mentorId, mentorTitle: r.mentorTitle } : {}),
+  }));
+}
+
+/** Steps 1-4 of the interaction-model slice: open one governed option set. */
+export async function runDecisionSurface(args: {
+  projectId: string;
+  level: EffortLevel;
+  runtime: Runtime;
+  scripted?: boolean;
+}): Promise<DecisionSurface> {
+  const scripted = args.scripted ?? false;
+  const project = getProject(args.projectId);
+  if (openSurface(project.id)) {
+    throw new Error("a Decision Surface is already open — decide it first");
+  }
+  const spec = effortSpec(args.level);
+  const approved = readApproved(project.id);
+
+  const decision = approved
+    ? `Como concretizar a próxima ação: ${approved.state.nextAction}`
+    : `A direção fundamental de "${project.name}"`;
+  const why = approved
+    ? "a próxima ação aprovada admite mais do que um caminho honesto"
+    : "a intenção fundadora admite mais do que uma direção honesta";
+
+  // Voices: the user's Mentors first (attributed), generic angles fill the
+  // table to at least two genuinely distinct alternatives.
+  const mentors = applicableMentors(project.id).slice(0, Math.min(spec.maxAgents, 4));
+  const targetCount = Math.max(2, Math.min(spec.maxAgents, 4));
+  const angles: { id: string; hint: string; mentorId?: string }[] = mentors.map((m) => ({
+    id: m.id,
+    hint: `the path this Mentor's judgement points to: ${m.persona}`,
+    mentorId: m.id,
+  }));
+  for (const g of GENERIC_ANGLES) {
+    if (angles.length >= targetCount) break;
+    angles.push(g);
+  }
+
+  const options: OptionRecord[] = [];
+  for (const [i, angle] of angles.entries()) {
+    const b = baseContext(project, spec.contextBudgetChars);
+    addApprovedState(b, project, true);
+    b.add({
+      kind: "pilot-note",
+      id: `angle-${angle.id}`,
+      absPath: abs(projectDir(project.id), "project.json"),
+      content: `angle: ${angle.id}\nAngle hint: ${angle.hint}`,
+      reason: "the distinct angle this option must commit to",
+      required: true,
+    });
+    const mentor = angle.mentorId ? mentors.find((m) => m.id === angle.mentorId) : undefined;
+    const resolved = mentor
+      ? mentorSeeds(project.id, mentor)
+      : resolveSeeds({ projectId: project.id, agentTags: [] });
+    for (const r of resolved) {
+      b.add({
+        kind: "expertise",
+        id: r.seed.id,
+        absPath: seedYamlPath(r.seed),
+        content:
+          `${r.seed.title} (GuruSeed v${r.seed.version}` +
+          `${r.mentorTitle ? `, Mentor: ${r.mentorTitle}` : ""})\n\n` +
+          `Rule: ${r.seed.rule}\nWhy: ${r.seed.why}`,
+        reason: r.reason,
+        required: mentor !== undefined,
+      });
+    }
+    addAnswers(b, project, false);
+    const ctx = b.build();
+    const { record, text } = await runWorkOrder({
+      project,
+      kind: "option",
+      agentId: angle.id,
+      system: OPTION_SYSTEM,
+      ctx,
+      level: args.level,
+      runtime: args.runtime,
+    });
+    const parsed = optionFrom(text);
+    if (!parsed) continue; // an unparseable voice is not an option — visible in the WO record
+    const included = new Set(
+      ctx.elements.filter((el) => el.kind === "expertise").map((el) => el.ref.id),
+    );
+    options.push({
+      id: `option-${OPTION_LETTERS[i] ?? String(i + 1)}`,
+      version: 1,
+      ...parsed,
+      seeds: seedRefs(resolved.filter((r) => included.has(r.seed.id))),
+      workOrderId: record.id,
+      status: "candidate",
+    });
+  }
+  if (options.length < 2) {
+    throw new Error(
+      `only ${options.length} option(s) parsed — a Decision Surface needs at least two honest alternatives`,
+    );
+  }
+
+  // The Kernel's recommendation, grounded in the state (skippable at minimal).
+  let recommendation: DecisionSurface["recommendation"] = null;
+  if (levelIndex(args.level) >= levelIndex("low")) {
+    const b = baseContext(project, spec.contextBudgetChars);
+    addApprovedState(b, project, true);
+    b.add({
+      kind: "pilot-note",
+      id: "options-on-the-table",
+      absPath: abs(projectDir(project.id), "project.json"),
+      content: options
+        .map((o) => `${o.id}: ${o.title} — ${o.direction}\n${o.description}`)
+        .join("\n\n"),
+      reason: "the options being compared",
+      required: true,
+    });
+    const ctx = b.build();
+    try {
+      const { text } = await runWorkOrder({
+        project,
+        kind: "recommend",
+        agentId: null,
+        system: RECOMMEND_SYSTEM,
+        ctx,
+        level: args.level,
+        runtime: args.runtime,
+      });
+      for (const block of extractJsonBlocks(text).reverse()) {
+        const r = block as { optionId?: unknown; reason?: unknown };
+        if (
+          typeof r.optionId === "string" &&
+          typeof r.reason === "string" &&
+          options.some((o) => o.id === r.optionId)
+        ) {
+          recommendation = { optionId: r.optionId, reason: r.reason };
+          break;
+        }
+      }
+    } catch {
+      // no recommendation is honest; a failed one is not
+    }
+  }
+
+  const ds: DecisionSurface = {
+    id: `ds-${readSurfaces(project.id).length + 1}`,
+    projectId: project.id,
+    iteration: project.iteration,
+    decision,
+    why,
+    options,
+    recommendation,
+    status: "open",
+    createdAt: nowIso(),
+  };
+  writeSurface(ds);
+  event(project, "kernel", "decision_opened", scripted, {
+    dsId: ds.id,
+    note: `${decision} (${options.length} opções)`,
+  });
+  return ds;
+}
+
+/** Steps 5-7: a versioned refinement — the original is never overwritten. */
+export async function refineOption(args: {
+  projectId: string;
+  dsId: string;
+  optionId: string;
+  instruction: string;
+  runtime: Runtime;
+  scripted?: boolean;
+}): Promise<{ option: OptionRecord; candidateSeed: GuruSeed }> {
+  const scripted = args.scripted ?? false;
+  const project = getProject(args.projectId);
+  const ds = readSurfaces(project.id).find((d) => d.id === args.dsId);
+  if (!ds || ds.status !== "open") throw new Error(`no open surface ${args.dsId}`);
+  const base = ds.options
+    .filter((o) => o.id === args.optionId)
+    .sort((a, b) => b.version - a.version)[0];
+  if (!base) throw new Error(`unknown option ${args.optionId} on ${args.dsId}`);
+
+  const spec = effortSpec(clampAutoEffort("low"));
+  const b = baseContext(project, spec.contextBudgetChars);
+  addApprovedState(b, project, false);
+  b.add({
+    kind: "prior-response",
+    id: `${base.id}-v${base.version}`,
+    absPath: abs(surfacesDir(project.id), `${ds.id}.json`),
+    content:
+      `The option being refined (${base.id} v${base.version}):\n` +
+      `Title: ${base.title}\nDirection: ${base.direction}\n${base.description}\n` +
+      `Benefits: ${base.benefits}\nTradeoffs: ${base.tradeoffs}`,
+    reason: "the original the refinement must preserve",
+    required: true,
+  });
+  b.add({
+    kind: "pilot-note",
+    id: "refinement",
+    absPath: abs(projectDir(project.id), "evidence.jsonl"),
+    content: `refinement instruction: ${args.instruction.trim()}`,
+    reason: "the user's own direction — the only thing that may change",
+    required: true,
+  });
+  const seedsById = new Map(listSeeds().map((s) => [s.id, s]));
+  for (const ref of base.seeds) {
+    const seed = seedsById.get(ref.id);
+    if (!seed) continue;
+    b.add({
+      kind: "expertise",
+      id: seed.id,
+      absPath: seedYamlPath(seed),
+      content: `${seed.title} (GuruSeed v${seed.version})\n\nRule: ${seed.rule}\nWhy: ${seed.why}`,
+      reason: `carried over from ${base.id} v${base.version}: ${ref.reason}`,
+      required: true,
+    });
+  }
+  const ctx = b.build();
+  const { record, text } = await runWorkOrder({
     project,
-    "pilot",
-    decision === "admit" ? "expertise_admitted" : "expertise_discarded",
-    scripted,
-    { expertiseId: record.id, note: record.title },
-  );
+    kind: "refine",
+    agentId: base.id,
+    system: REFINE_SYSTEM,
+    ctx,
+    level: clampAutoEffort("low"),
+    runtime: args.runtime,
+  });
+  const parsed = optionFrom(text);
+  if (!parsed) throw new Error(`refine work order ${record.id} returned no parseable option`);
+
+  const refined: OptionRecord = {
+    id: base.id,
+    version: base.version + 1,
+    ...parsed,
+    seeds: base.seeds,
+    workOrderId: record.id,
+    parent: { id: base.id, version: base.version },
+    refinement: args.instruction.trim(),
+    status: "candidate",
+  };
+  ds.options.push(refined);
+  writeSurface(ds);
+  event(project, "pilot", "option_refined", scripted, {
+    dsId: ds.id,
+    optionId: base.id,
+    workOrderId: record.id,
+    note: args.instruction.trim(),
+  });
+
+  // Step 11: a refinement may teach — candidate only, the Pilot governs it.
+  const candidateSeed = addCandidateSeed({
+    title: `Preferência: ${args.instruction.trim().slice(0, 60)}`,
+    rule: args.instruction.trim(),
+    why:
+      `O utilizador refinou ${base.id} em ${ds.id} com esta direção — ` +
+      `possivelmente um julgamento reutilizável, possivelmente pontual.`,
+    domains: [],
+    projects: [project.id],
+    origin: "taught",
+    provenanceNote: `extracted from refinement ${ds.id}:${base.id} v${base.version}→v${refined.version}`,
+    sourceProject: project.id,
+  });
+  event(project, "kernel", "seed_candidate_extracted", scripted, {
+    seedId: candidateSeed.id,
+    dsId: ds.id,
+    optionId: base.id,
+    note: candidateSeed.title,
+  });
+  return { option: refined, candidateSeed };
+}
+
+/** Steps 8-10: the Pilot's choice closes the surface; lineage is evidence. */
+export function selectOption(
+  projectId: string,
+  dsId: string,
+  optionId: string,
+  version: number,
+  scripted = false,
+): DecisionSurface {
+  const project = getProject(projectId);
+  const ds = readSurfaces(projectId).find((d) => d.id === dsId);
+  if (!ds || ds.status !== "open") throw new Error(`no open surface ${dsId}`);
+  const chosen = ds.options.find((o) => o.id === optionId && o.version === version);
+  if (!chosen) throw new Error(`unknown option ${optionId} v${version} on ${dsId}`);
+  chosen.status = "selected";
+  for (const o of ds.options) {
+    if (o !== chosen && o.status === "candidate") o.status = "rejected";
+  }
+  ds.selected = { optionId, version };
+  ds.status = "decided";
+  ds.decidedAt = nowIso();
+  writeSurface(ds);
+  event(project, "pilot", "option_selected", scripted, {
+    dsId,
+    optionId,
+    note: `${chosen.title} (v${version}${chosen.refinement ? ", refinada" : ""})`,
+  });
+  return ds;
 }
 
 // ---------------------------------------------------------------------------
@@ -1093,7 +1549,7 @@ export function storyOf(projectId: string): Story {
   const roster = readRoster(projectId);
   const questions = readQuestions(projectId);
   const titles = new Map<string, string>();
-  for (const e of expertiseFor(projectId)) titles.set(e.id, e.title);
+  for (const s of [...listSeeds(), ...listCandidates()]) titles.set(s.id, s.title);
 
   const iterations = new Map<number, StoryItem[]>();
   for (const e of readEvents(projectId)) {

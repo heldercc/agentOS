@@ -11,3 +11,11 @@ workspace/
 # mailbox is the transient human-in-the-middle bridge (ADR-0013) — prompts and
 # answers in flight, never evidence.
 mailbox/
+
+# The Human Intelligence Library is the owner's personal judgement (GuruSeeds,
+# Mentors) — canonical on disk, its own git-able unit, NOT published in this
+# public repo (ADR-0020 §7, surfaced to the Pilot, his call to change).
+human-intelligence/
+
+# the smoke test's isolated, disposable library
+smoke-hi/
