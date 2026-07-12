@@ -120,14 +120,18 @@ commit is invisible state and breaks the model. (Pilot's standing grant,
 2026-07-12.)
 
 ## Last Updated
-Session 012 (2026-07-12, evening) — executed the Pilot's + GPT's parecer
-on Session 011: (a) provenance made IMMUTABLE — recoverable version
-history for Seeds (seeds/<slug>/versions/) and Mentors (mentors/history/),
-telemetry moved out of the versioned content into append-only sidecars
-(applications.jsonl, evidence.jsonl hydrated at read), content hashes on
-every record, artifact sidecars now carry artifactSha256 + manifestSha256 +
-each seed's contentHash, real library migrated (2 records); (b) the proof
+Session 012 (2026-07-12, evening) — executed the Pilot's + GPT's pareceres:
+(a) provenance made IMMUTABLE — recoverable version history for Seeds and
+Mentors, telemetry in append-only sidecars, content hashes everywhere,
+artifact sidecars hash-verifiable, real library migrated; (b) the proof
 declaration CORRECTED honestly — mechanics proven on a real model, but the
 user was the Copilot and "Chega" passed only on the FakeRuntime; the human
-proof belongs to the Pilot's first true Beta. Smoke 72/72, tsc strict.
-Detail: docs/navigation/2026/2026-07.md addenda 8–12.
+proof belongs to the Pilot's first true test; (c) the VISIBLE JOURNEY +
+PROJECT LIFECYCLE — persistent human journey over the internal stages, one
+dominant card ("O que precisa de ti agora"), technical diagnostics in
+Detalhes/Auditoria, semantic colour, Melhorar as a directed new pass, and
+Concluir/Reabrir as governed acts (archive, never delete). Smoke 77/77,
+tsc strict. The Pilot's first true human test — children's stories for his
+nieces, built inside the product from one minimal sentence — is IMMINENT:
+the App is up on :4900 with nothing pre-authored. Detail:
+docs/navigation/2026/2026-07.md addenda 8–13.
