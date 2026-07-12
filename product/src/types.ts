@@ -27,7 +27,8 @@ export interface ContextElement {
     | "approved-state"
     | "prior-response"
     | "pilot-note"
-    | "artifact";
+    | "artifact"
+    | "expertise";
   chars: number;
   selectionReason: string;
 }
@@ -190,10 +191,14 @@ export interface EvidenceEvent {
     | "execution_started"
     | "artifact_returned"
     | "iteration_advanced"
-    | "pilot_note";
+    | "pilot_note"
+    | "expertise_added"
+    | "expertise_admitted"
+    | "expertise_discarded";
   workOrderId?: string;
   agentId?: string;
   questionId?: string;
+  expertiseId?: string;
   note?: string;
   effortLevel?: string;
   scripted: boolean;

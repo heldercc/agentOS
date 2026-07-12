@@ -18,6 +18,16 @@ import {
   effortSpec,
   type EffortLevel,
 } from "./effort.js";
+import {
+  addExpertise as addExpertiseRecord,
+  applicableExpertise,
+  decideExpertise,
+  expertiseFor,
+  ownerScopeOf,
+  recordApplication,
+  SHARED_ID,
+  type Expertise,
+} from "./expertise.js";
 import { buildManifest, ContextBuilder, type AssembledContext } from "./manifest.js";
 import {
   artifactsDir,
@@ -349,6 +359,20 @@ async function runWorkOrder(args: {
     "utf8",
   );
 
+  // The application trail (ADR-0019): every piece of admitted expertise that
+  // entered this context is recorded on the asset itself, automatically.
+  for (const el of args.ctx.elements) {
+    if (el.kind !== "expertise") continue;
+    const scope = ownerScopeOf(args.project.id, el.ref.id);
+    if (scope) {
+      recordApplication(scope, el.ref.id, {
+        projectId: args.project.id,
+        workOrderId: woId,
+        ts: nowIso(),
+      });
+    }
+  }
+
   const base: Omit<WorkOrderRecord, "status"> = {
     id: woId,
     projectId: args.project.id,
@@ -455,6 +479,33 @@ function addPilotNotes(b: ContextBuilder, project: Project): void {
       absPath: abs(projectDir(project.id), "evidence.jsonl"),
       content: note,
       reason: "the user's own direction outranks derived context",
+      required: false,
+    });
+  }
+}
+
+/**
+ * A runtime agent is a composition (FOUNDATION-CORRECTION, ADR-0019):
+ * mandate + relevant project context + applicable human expertise + effort
+ * budget. Admitted judgement whose scope overlaps the agent's tags enters
+ * here — BEFORE other optional elements, because under a tight budget the
+ * owner's judgement outranks derived history. Untagged expertise applies
+ * project-wide (pass no tags for kernel-level work orders).
+ */
+function addExpertise(b: ContextBuilder, project: Project, agentTags: string[]): void {
+  for (const e of applicableExpertise(project.id, agentTags)) {
+    b.add({
+      kind: "expertise",
+      id: e.id,
+      absPath:
+        e.reach === "reusable"
+          ? abs(WORKSPACE_DIR, "_shared", "expertise.json")
+          : abs(projectDir(project.id), "expertise.json"),
+      content: `${e.title}\n\n${e.body}`,
+      reason:
+        e.tags.length === 0
+          ? `admitted ${e.reach} expertise, project-wide scope`
+          : `admitted ${e.reach} expertise; scope [${e.tags.join(", ")}] matches the agent`,
       required: false,
     });
   }
@@ -617,6 +668,7 @@ export async function runConsult(args: {
     const b = baseContext(project, spec.contextBudgetChars);
     addRole(b, project, agent);
     addApprovedState(b, project, true);
+    addExpertise(b, project, agent.tags);
     addAnswers(b, project, false);
     addPilotNotes(b, project);
     const ctx = b.build();
@@ -683,6 +735,7 @@ export async function answerQuestion(args: {
       required: true,
     });
     addApprovedState(b, project, false);
+    addExpertise(b, project, agent.tags);
     addAnswers(b, project, false);
     const ctx = b.build();
     const { record, text } = await runWorkOrder({
@@ -730,6 +783,7 @@ export async function runCandidate(args: {
     required: true,
   });
   addApprovedState(b, project, true);
+  addExpertise(b, project, []);
   addAnswers(b, project, true);
   const prev = readCandidate(project.id);
   if (prev?.status === "rejected" && prev.rejectionNote) {
@@ -853,6 +907,7 @@ export async function runExecute(args: {
     const b = baseContext(project, spec.contextBudgetChars);
     addRole(b, project, agent);
     addApprovedState(b, project, true);
+    addExpertise(b, project, agent.tags);
     addAnswers(b, project, false);
     for (const a of listArtifacts(project.id).reverse()) {
       b.add({
@@ -900,4 +955,190 @@ export function advanceIteration(projectId: string, scripted = false): Project {
     note: `it-${project.iteration} -> it-${advanced.iteration}`,
   });
   return advanced;
+}
+
+// ---------------------------------------------------------------------------
+// Expertise governance (ADR-0019 §1): the store transitions live in
+// expertise.ts; these wrappers add what governance requires — the evidence
+// event, pilot actor, always. The Kernel schedules expertise; only the user
+// admits it.
+
+export function addExpertiseGoverned(
+  projectId: string,
+  args: {
+    reach: "project" | "reusable";
+    title: string;
+    body: string;
+    tags: string[];
+    provenanceNote: string;
+  },
+  scripted = false,
+): Expertise {
+  const project = getProject(projectId);
+  const record = addExpertiseRecord({
+    scopeId: args.reach === "reusable" ? SHARED_ID : projectId,
+    title: args.title,
+    body: args.body,
+    tags: args.tags,
+    provenanceNote: args.provenanceNote,
+  });
+  event(project, "pilot", "expertise_added", scripted, {
+    expertiseId: record.id,
+    note: record.title,
+  });
+  return record;
+}
+
+export function decideExpertiseGoverned(
+  projectId: string,
+  expertiseId: string,
+  decision: "admit" | "discard",
+  scripted = false,
+): void {
+  const project = getProject(projectId);
+  const scope = ownerScopeOf(projectId, expertiseId);
+  if (!scope) throw new Error(`unknown expertise ${expertiseId}`);
+  const record = decideExpertise(scope, expertiseId, decision);
+  event(
+    project,
+    "pilot",
+    decision === "admit" ? "expertise_admitted" : "expertise_discarded",
+    scripted,
+    { expertiseId: record.id, note: record.title },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The story of the project (FOUNDATION-CORRECTION, ADR-0019 §3): assembled
+// entirely from disk — evidence, work orders, manifests, questions, states,
+// artifacts. Operational provenance, never private model reasoning: the only
+// things stored (and therefore the only things shown) are inputs, outputs,
+// and what entered context with which reason.
+
+const OUTPUT_EXCERPT_CHARS = 1600;
+
+export interface StoryItem {
+  ts: string;
+  iteration: number;
+  action: EvidenceEvent["action"];
+  actor: "pilot" | "kernel";
+  agentId?: string;
+  agentTitle?: string;
+  mandate?: string;
+  workOrderId?: string;
+  workKind?: WorkOrderKind;
+  effortLevel?: string;
+  model?: string;
+  workStatus?: string;
+  /** Expertise this work order received, with the Kernel's selection reason. */
+  expertise?: { id: string; title: string; reason: string }[];
+  /** Operational output excerpt (response or artifact), never reasoning. */
+  output?: string;
+  outputChars?: number;
+  questionText?: string;
+  answer?: string;
+  askedBy?: string[];
+  expertiseId?: string;
+  note?: string;
+}
+
+export interface StoryIteration {
+  iteration: number;
+  items: StoryItem[];
+}
+
+export interface Story {
+  intent: { name: string; description: string; createdAt: string };
+  iterations: StoryIteration[];
+}
+
+function woDetail(
+  projectId: string,
+  iteration: number,
+  workOrderId: string,
+  expertiseTitles: Map<string, string>,
+): Partial<StoryItem> {
+  const dir = abs(workOrdersDir(projectId, iteration), workOrderId);
+  if (!existsSync(abs(dir, "workorder.json"))) return {};
+  const record = readJson<WorkOrderRecord>(abs(dir, "workorder.json"));
+  const out: Partial<StoryItem> = {
+    workKind: record.kind,
+    effortLevel: record.effortLevel,
+    model: record.model,
+    workStatus: record.status,
+  };
+  const manifestPath = abs(dir, "manifest.json");
+  if (existsSync(manifestPath)) {
+    const manifest = readJson<import("./types.js").ContextManifest>(manifestPath);
+    const applied = manifest.elements
+      .filter((el) => el.kind === "expertise")
+      .map((el) => ({
+        id: el.ref.id,
+        title: expertiseTitles.get(el.ref.id) ?? el.ref.id,
+        reason: el.selectionReason,
+      }));
+    if (applied.length > 0) out.expertise = applied;
+  }
+  const respPath = abs(dir, "response.md");
+  if (existsSync(respPath)) {
+    const text = readText(respPath);
+    out.output = text.slice(0, OUTPUT_EXCERPT_CHARS);
+    out.outputChars = text.length;
+  }
+  return out;
+}
+
+export function storyOf(projectId: string): Story {
+  const project = getProject(projectId);
+  const roster = readRoster(projectId);
+  const questions = readQuestions(projectId);
+  const titles = new Map<string, string>();
+  for (const e of expertiseFor(projectId)) titles.set(e.id, e.title);
+
+  const iterations = new Map<number, StoryItem[]>();
+  for (const e of readEvents(projectId)) {
+    const item: StoryItem = {
+      ts: e.ts,
+      iteration: e.iteration,
+      action: e.action,
+      actor: e.actor,
+    };
+    if (e.agentId) {
+      item.agentId = e.agentId;
+      const role = roster?.agents.find((a) => a.id === e.agentId);
+      if (role) {
+        item.agentTitle = role.title;
+        item.mandate = role.mandate;
+      }
+    }
+    if (e.workOrderId) {
+      item.workOrderId = e.workOrderId;
+      Object.assign(item, woDetail(projectId, e.iteration, e.workOrderId, titles));
+    }
+    if (e.questionId) {
+      const q = questions.find((x) => x.id === e.questionId);
+      if (q) {
+        item.questionText = q.text;
+        if (q.answer !== undefined) item.answer = q.answer;
+        item.askedBy = q.askedBy;
+      }
+    }
+    if (e.expertiseId) item.expertiseId = e.expertiseId;
+    if (e.note) item.note = e.note;
+
+    const bucket = iterations.get(e.iteration) ?? [];
+    bucket.push(item);
+    iterations.set(e.iteration, bucket);
+  }
+
+  return {
+    intent: {
+      name: project.name,
+      description: project.description,
+      createdAt: project.createdAt,
+    },
+    iterations: [...iterations.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([iteration, items]) => ({ iteration, items })),
+  };
 }

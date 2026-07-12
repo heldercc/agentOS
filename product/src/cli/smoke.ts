@@ -8,9 +8,11 @@ import { existsSync, rmSync } from "node:fs";
 import { readEvents } from "../evidence.js";
 import { collectMeterSamples, probeEffort } from "../effort.js";
 import {
+  addExpertiseGoverned,
   advanceIteration,
   answerQuestion,
   decideCandidate,
+  decideExpertiseGoverned,
   getProject,
   initProject,
   openQuestions,
@@ -22,8 +24,10 @@ import {
   runConsult,
   runExecute,
   stageOf,
+  storyOf,
   topOpenQuestion,
 } from "../kernel.js";
+import { applicableExpertise, readExpertise } from "../expertise.js";
 import { buildActual } from "../effort.js";
 import { projectDir, WORKSPACE_DIR } from "../paths.js";
 import { abs, readJson, readText, writeArtifactOnce } from "../stores.js";
@@ -204,6 +208,76 @@ async function main(): Promise<void> {
   const advanced = advanceIteration(project.id, true);
   check("13. iteration advanced", advanced.iteration === 2);
   check("13b. stage returns to consult", stageOf(project.id) === "consult");
+
+  // ADR-0019 — expertise is the durable asset: the user's judgement enters
+  // the store as a candidate, is admitted by the user, and from then on the
+  // Kernel schedules it into every applicable work order, visibly.
+  const x = addExpertiseGoverned(
+    project.id,
+    {
+      reach: "project",
+      title: "Prefer the shortest honest option",
+      body: "When two options are equal, the shorter one wins.",
+      tags: [],
+      provenanceNote: "smoke: the owner's own hand",
+    },
+    true,
+  );
+  check("19a. expertise enters as candidate", x.status === "candidate");
+  check(
+    "19b. candidate expertise is never applied",
+    applicableExpertise(project.id, []).every((e) => e.id !== x.id),
+  );
+  decideExpertiseGoverned(project.id, x.id, "admit", true);
+  await runConsult({ projectId: project.id, level: "minimal", runtime, scripted: true });
+  const it2wo = readWorkOrders(project.id, 2).find((w) => w.kind === "consult");
+  const it2manifest = it2wo
+    ? readJson<ContextManifest>(
+        abs(
+          projectDir(project.id),
+          "iterations",
+          "it-002",
+          "workorders",
+          it2wo.id,
+          "manifest.json",
+        ),
+      )
+    : null;
+  check(
+    "19c. admitted expertise entered the next consult's manifest with a reason",
+    it2manifest?.elements.some(
+      (el) => el.kind === "expertise" && el.ref.id === x.id && el.selectionReason !== "",
+    ) === true,
+  );
+  check(
+    "19d. the application trail recorded the work order",
+    readExpertise(project.id).find((e) => e.id === x.id)?.appliedIn.some(
+      (a) => a.workOrderId === it2wo?.id,
+    ) === true,
+  );
+
+  // The story (ADR-0019 §3): the whole project navigable from disk.
+  const story = storyOf(project.id);
+  const flat = story.iterations.flatMap((i) => i.items);
+  check("19e. story opens with the founding intent", story.intent.name === "Smoke Loop");
+  check("19f. story spans both iterations", story.iterations.length >= 2);
+  check(
+    "19g. contributions carry mandate + output (provenance, not reasoning)",
+    flat.some((i) => i.action === "consulted" && i.mandate && i.output),
+  );
+  check(
+    "19h. a contribution shows the expertise it received and why",
+    flat.some((i) => i.expertise?.some((e) => e.id === x.id && e.reason !== "")),
+  );
+  check(
+    "19i. governance moments are in the story",
+    flat.some((i) => i.action === "state_approved") &&
+      flat.some((i) => i.action === "expertise_admitted"),
+  );
+  check(
+    "19j. the interview is in the story with question and answer",
+    flat.some((i) => i.action === "question_answered" && i.questionText && i.answer),
+  );
 
   // Cross-cutting invariants.
   const wos = readWorkOrders(project.id, 1);
