@@ -11,6 +11,7 @@ import {
   addCandidateSeedGoverned,
   advanceIteration,
   answerQuestion,
+  appendOperationActual,
   concludeProject,
   decideCandidate,
   decideSeedGoverned,
@@ -20,6 +21,7 @@ import {
   listArtifacts,
   openQuestions,
   readApproved,
+  readOperationActuals,
   readQuestions,
   readRoster,
   readSurfaces,
@@ -39,6 +41,8 @@ import {
   storyOf,
   topOpenQuestion,
   type ArtifactProvenance,
+  type OnMeter,
+  type OnPhase,
 } from "../kernel.js";
 import {
   getCandidate,
@@ -58,7 +62,8 @@ import { buildActual } from "../effort.js";
 import { LIVE_WORKSPACE_DIR, projectDir, workspaceRoot } from "../paths.js";
 import { abs, readJson, readText, sha256, writeArtifactOnce } from "../stores.js";
 import { FakeRuntime, OpCancelledError } from "../runtime.js";
-import type { ContextManifest, EvidenceEvent } from "../types.js";
+import { classifyPollOutcome, shouldApplyPoll } from "../poll-logic.js";
+import type { ContextManifest, EvidenceEvent, OperationActual } from "../types.js";
 
 let passed = 0;
 let failed = 0;
@@ -834,6 +839,121 @@ async function main(): Promise<void> {
     readEvents(project.id).some(
       (e) => e.action === "operation_cancelled" && e.actor === "pilot" && e.scripted,
     ),
+  );
+
+  // ---------------------------------------------------------------------------
+  // Poll hardening (ADR-0022 PHASE 1 item 6) — poll-logic.ts is the pure,
+  // importable twin of the inline client poll logic hand-mirrored in
+  // shell.ts's PAGE template; exercised directly here, deterministically.
+  check("P1. shouldApplyPoll accepts a strictly newer response", shouldApplyPoll(3, 4) === true);
+  check("P2. shouldApplyPoll rejects a duplicate (equal) response", shouldApplyPoll(4, 4) === false);
+  check(
+    "P3. shouldApplyPoll rejects an older response arriving after a newer one",
+    shouldApplyPoll(5, 4) === false,
+  );
+  check(
+    "P4. classifyPollOutcome: a rejected fetch is a connection failure",
+    classifyPollOutcome({ fetchRejected: true, httpStatus: null, parseFailed: false }) ===
+      "connection-failure",
+  );
+  check(
+    "P5. classifyPollOutcome: a non-200 status is a data error",
+    classifyPollOutcome({ fetchRejected: false, httpStatus: 500, parseFailed: false }) ===
+      "data-error",
+  );
+  check(
+    "P6. classifyPollOutcome: a JSON parse failure is a data error",
+    classifyPollOutcome({ fetchRejected: false, httpStatus: 200, parseFailed: true }) ===
+      "data-error",
+  );
+  check(
+    "P7. classifyPollOutcome: a 200 with a parseable body is ok",
+    classifyPollOutcome({ fetchRejected: false, httpStatus: 200, parseFailed: false }) === "ok",
+  );
+
+  // ---------------------------------------------------------------------------
+  // Operation visibility + persisted actuals (ADR-0022 PHASE 1 items 3/5):
+  // the Kernel's onPhase/onMeter callbacks must fire only honest, ordered
+  // phases per Work Order, meters must accumulate, and an OperationActual
+  // must round-trip through operations.jsonl.
+  if (existsSync(projectDir("smoke-observability"))) {
+    rmSync(projectDir("smoke-observability"), { recursive: true, force: true });
+  }
+  const p3 = initProject("Smoke Observability", "Prove honest phase reporting.", true);
+  const phaseLog: { phase: string; workOrderId: string; agentId: string }[] = [];
+  let meterCalls = 0;
+  let tokensSeen = 0;
+  const onPhase: OnPhase = (phase, workOrderId, agentId) => {
+    phaseLog.push({ phase, workOrderId, agentId });
+  };
+  const onMeter: OnMeter = (meter) => {
+    meterCalls += 1;
+    tokensSeen += meter.inputTokens + meter.outputTokens;
+  };
+  await runConsult({
+    projectId: p3.id,
+    level: "balanced",
+    runtime,
+    scripted: true,
+    onPhase,
+    onMeter,
+  });
+  const byWo = new Map<string, string[]>();
+  for (const e of phaseLog) {
+    const list = byWo.get(e.workOrderId) ?? [];
+    list.push(e.phase);
+    byWo.set(e.workOrderId, list);
+  }
+  check(
+    "OB1. every work order reports response-received, then validating-parsing, then persisting",
+    byWo.size > 0 &&
+      [...byWo.values()].every((phases) => {
+        const rr = phases.indexOf("response-received");
+        const vp = phases.indexOf("validating-parsing");
+        const pe = phases.indexOf("persisting");
+        return rr !== -1 && vp !== -1 && pe !== -1 && rr < vp && vp < pe;
+      }),
+    JSON.stringify([...byWo.entries()]),
+  );
+  check(
+    "OB2. onMeter fires once per work order and tokens accumulate",
+    meterCalls === byWo.size && tokensSeen > 0,
+    `meterCalls=${meterCalls} woCount=${byWo.size} tokens=${tokensSeen}`,
+  );
+  const opStart = new Date(Date.now() - 5000).toISOString();
+  const opActual: OperationActual = {
+    operationId: "op-smoke-test",
+    projectId: p3.id,
+    iteration: p3.iteration,
+    op: "consult",
+    effortLevel: "balanced",
+    startedAt: opStart,
+    endedAt: new Date().toISOString(),
+    outcome: "completed",
+    wallMs: 5000,
+    queueMs: 10,
+    firstFeedbackMs: 120,
+    phases: [
+      { phase: "queued", at: opStart },
+      { phase: "persisting", at: new Date().toISOString() },
+    ],
+    workOrdersPlanned: byWo.size,
+    workOrdersDone: byWo.size,
+    tokensInput: 100,
+    tokensOutput: 50,
+    tokensEstimated: true,
+    heartbeatGapMaxMs: 200,
+    timeoutMs: 60000,
+    models: ["fake:sonnet"],
+  };
+  appendOperationActual(opActual);
+  const readBack = readOperationActuals(p3.id);
+  check(
+    "OB3. an OperationActual round-trips through operations.jsonl with outcome completed",
+    readBack.length === 1 &&
+      readBack[0]?.operationId === "op-smoke-test" &&
+      readBack[0]?.outcome === "completed" &&
+      readBack[0]?.tokensInput === 100,
   );
 
   console.log(`\n${passed}/${passed + failed} checks passed`);

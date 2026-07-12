@@ -21,6 +21,7 @@ import {
   addCandidateSeedGoverned,
   advanceIteration,
   answerQuestion,
+  appendOperationActual,
   concludeProject,
   decideCandidate,
   decideSeedGoverned,
@@ -53,6 +54,9 @@ import {
   stageOf,
   storyOf,
   topOpenQuestion,
+  type OnMeter,
+  type OnPhase,
+  type WorkOrderPhase,
 } from "../kernel.js";
 import {
   ensureImmutableProvenance,
@@ -76,7 +80,7 @@ import {
 import { OpCancelledError, resolveRuntime, type GenerateArgs, type Runtime } from "../runtime.js";
 import { abs, readJson, readText, writeJson } from "../stores.js";
 import { computeStaleness, gitDirtyProductFiles, gitProductHead, gitShortHead } from "../build.js";
-import { DATA_SCHEMA_VERSION, type EffortProfile, type MeterRecord } from "../types.js";
+import { DATA_SCHEMA_VERSION, type EffortProfile, type MeterRecord, type OperationActual } from "../types.js";
 
 /** PRODUCT_PORT lets a verification instance run beside the live :4900 shell. */
 const PORT = Number(process.env["PRODUCT_PORT"] ?? 4900);
@@ -172,7 +176,11 @@ try {
 interface Busy {
   op: string;
   startedAt: string;
-  /** "queued"|"launching"|"awaiting-model"|"processing" — honest stage labels. */
+  /** "queued"|"launching"|"awaiting-model"|"response-received"|
+   *  "validating-parsing"|"persisting" — honest stage labels; "processing"
+   *  is retired (ADR-0022 PHASE 1 items 3/5 — it claimed work that was not
+   *  really happening). The last three arrive from the Kernel's onPhase
+   *  callback, fired only on real evidence (runtime.ts/kernel.ts). */
   phase: string;
   phaseSince: string;
   /** Last REAL evidence of life (stdout/stderr chunk, poll tick). */
@@ -183,17 +191,133 @@ interface Busy {
   callsDone: number;
   callsPlanned: number;
   timeoutMs: number | null;
+  /** Stable id for this one operation (full visibility, ADR-0022 PHASE 1
+   *  item 3): "op-" + base36 timestamp + 4 random base36 chars. */
+  operationId: string;
+  /** The roster agent currently being worked, if any — kernel-level Work
+   *  Orders (roster/synthesize/recommend) leave this null. */
+  agentId: string | null;
+  /** agentId's roster title, resolved once known — the human-readable name
+   *  the Pilot actually recognizes. */
+  humanRole: string | null;
+  /** Cumulative input+output tokens across every Work Order this operation
+   *  has completed so far. */
+  tokensDone: number;
+  /** True the instant ANY contributing meter was an estimate (fake/cli/
+   *  mailbox ports) rather than API-metered — never silently rounds up to
+   *  "exact". */
+  tokensEstimated: boolean;
 }
 const busy = new Map<string, Busy>();
 /** Never serialized — the Pilot's "Parar esta operação" reaches in here only. */
 const aborters = new Map<string, AbortController>();
 const lastError = new Map<string, string>();
 
+/** "op-" + Date.now() base36 + 4 random base36 chars — unique enough for one
+ *  in-flight-per-project operation, cheap, and legible in logs/UI. */
+function genOperationId(): string {
+  const rand = Math.random().toString(36).slice(2, 6);
+  return `op-${Date.now().toString(36)}-${rand}`;
+}
+
+/**
+ * Internal-only bookkeeping for ONE in-flight operation's persisted actuals
+ * (ADR-0022 PHASE 1 item 5) — never serialized to the client; Busy carries
+ * only what the live card needs. Accumulated across every Work Order the
+ * operation runs, then folded into an OperationActual in startOp's finally.
+ */
+interface OpTrack {
+  startedAtMs: number;
+  phases: { phase: string; at: string }[];
+  /** ms from startedAtMs to the first phase change away from "queued";
+   *  null until that first change happens. */
+  queueMs: number | null;
+  /** ms from startedAtMs to the first "response-received"; null until then. */
+  firstFeedbackMs: number | null;
+  lastHeartbeatMs: number;
+  heartbeatGapMaxMs: number;
+  tokensInput: number;
+  tokensOutput: number;
+  models: Set<string>;
+  workOrdersDone: number;
+}
+const opTrack = new Map<string, OpTrack>();
+
+function noteHeartbeat(track: OpTrack | undefined): void {
+  if (!track) return;
+  const nowMs = Date.now();
+  const gap = nowMs - track.lastHeartbeatMs;
+  if (gap > track.heartbeatGapMaxMs) track.heartbeatGapMaxMs = gap;
+  track.lastHeartbeatMs = nowMs;
+}
+
+function notePhase(projectId: string, phase: string, at: string): void {
+  const track = opTrack.get(projectId);
+  if (!track) return;
+  track.phases.push({ phase, at });
+  if (track.queueMs === null && phase !== "queued") {
+    track.queueMs = Date.now() - track.startedAtMs;
+  }
+}
+
+/**
+ * The Kernel's onPhase callback for one operation: fired only with REAL
+ * evidence (see runWorkOrder's honesty comment in kernel.ts) — the shell
+ * never invents a phase, it only relays the Kernel's own.
+ */
+function onPhaseFor(projectId: string): OnPhase {
+  return (phase: WorkOrderPhase, workOrderId: string, agentId: string): void => {
+    const b = busy.get(projectId);
+    const now = new Date().toISOString();
+    if (b) {
+      b.phase = phase;
+      b.phaseSince = now;
+      b.heartbeatAt = now;
+      b.workOrderId = workOrderId;
+      if (agentId) {
+        b.agentId = agentId;
+        const roster = readRoster(projectId);
+        b.humanRole = roster?.agents.find((a) => a.id === agentId)?.title ?? agentId;
+      }
+    }
+    notePhase(projectId, phase, now);
+    noteHeartbeat(opTrack.get(projectId));
+    const track = opTrack.get(projectId);
+    if (track && phase === "response-received" && track.firstFeedbackMs === null) {
+      track.firstFeedbackMs = Date.now() - track.startedAtMs;
+    }
+    if (track && phase === "persisting") {
+      track.workOrdersDone += 1;
+    }
+  };
+}
+
+/** The Kernel's onMeter callback: accumulates the live token count on Busy
+ *  and the input/output split + model set on the operation's track. */
+function onMeterFor(projectId: string): OnMeter {
+  return (meter: MeterRecord, _agentId: string): void => {
+    const b = busy.get(projectId);
+    if (b) {
+      b.tokensDone += meter.inputTokens + meter.outputTokens;
+      if (meter.estimated) b.tokensEstimated = true;
+    }
+    const track = opTrack.get(projectId);
+    if (track) {
+      track.tokensInput += meter.inputTokens;
+      track.tokensOutput += meter.outputTokens;
+      track.models.add(meter.model);
+    }
+  };
+}
+
 /**
  * Wraps the module-level runtime so every call drives the Busy record: phase
  * transitions and heartbeat come from REAL runtime activity (ponto D — no
  * invented percentage). If the project has no Busy record (called outside
- * startOp's bookkeeping), it simply delegates.
+ * startOp's bookkeeping), it simply delegates. "launching"/"awaiting-model"
+ * stay shell-side (they describe the shell's OWN act of issuing the call);
+ * everything from "response-received" onward is the Kernel's own honest
+ * report, via onPhase/onMeter (kernel.ts).
  */
 function instrument(projectId: string): Runtime {
   return {
@@ -208,20 +332,25 @@ function instrument(projectId: string): Runtime {
       b.phase = "launching";
       b.phaseSince = now();
       b.heartbeatAt = now();
+      notePhase(projectId, "launching", b.phaseSince);
       b.phase = "awaiting-model";
       b.phaseSince = now();
+      notePhase(projectId, "awaiting-model", b.phaseSince);
       const ac = aborters.get(projectId);
       const res = await runtime.generate({
         ...args,
         ...(ac ? { signal: ac.signal } : {}),
         onActivity: () => {
           b.heartbeatAt = now();
+          noteHeartbeat(opTrack.get(projectId));
         },
       });
-      // The kernel now parses/persists between calls — honest, not invented.
+      // The kernel now reports "response-received"/"validating-parsing"/
+      // "persisting" itself, through onPhase — this wrapper's job ends at
+      // issuing the call; it no longer guesses what happens after.
       b.callsDone += 1;
-      b.phase = "processing";
       b.heartbeatAt = now();
+      noteHeartbeat(opTrack.get(projectId));
       return res;
     },
   };
@@ -236,6 +365,7 @@ function startOp(
 ): boolean {
   if (busy.has(projectId)) return false;
   const now = new Date().toISOString();
+  const operationId = genOperationId();
   busy.set(projectId, {
     op,
     startedAt: now,
@@ -248,9 +378,27 @@ function startOp(
     callsDone: 0,
     callsPlanned: planned,
     timeoutMs: null,
+    operationId,
+    agentId: null,
+    humanRole: null,
+    tokensDone: 0,
+    tokensEstimated: false,
+  });
+  opTrack.set(projectId, {
+    startedAtMs: Date.now(),
+    phases: [{ phase: "queued", at: now }],
+    queueMs: null,
+    firstFeedbackMs: null,
+    lastHeartbeatMs: Date.now(),
+    heartbeatGapMaxMs: 0,
+    tokensInput: 0,
+    tokensOutput: 0,
+    models: new Set<string>(),
+    workOrdersDone: 0,
   });
   aborters.set(projectId, new AbortController());
   lastError.delete(projectId);
+  let outcome: "completed" | "interrupted" | "failed" = "completed";
   void work()
     .catch((e) => {
       // The Kernel now lets OpCancelledError through intact and writes the
@@ -262,6 +410,7 @@ function startOp(
         e instanceof OpCancelledError ||
         (e as { name?: string } | null)?.name === "OpCancelledError";
       if (cancelled) {
+        outcome = "interrupted";
         recordOperationCancelled(projectId, op);
         lastError.set(
           projectId,
@@ -269,11 +418,46 @@ function startOp(
             "Podes relançar quando quiseres (igual ou com outro esforço).",
         );
       } else {
+        outcome = "failed";
         lastError.set(projectId, msg);
       }
     })
     .finally(() => {
+      // Persisted operation actuals (ADR-0022 PHASE 1 item 5) — must never
+      // throw out of finally; a bookkeeping failure is not the Pilot's
+      // problem, so it is only ever logged.
+      try {
+        const b = busy.get(projectId);
+        const track = opTrack.get(projectId);
+        if (b && track) {
+          appendOperationActual({
+            operationId: b.operationId,
+            projectId,
+            iteration: getProject(projectId).iteration,
+            op: b.op,
+            effortLevel: b.effortLevel,
+            startedAt: b.startedAt,
+            endedAt: new Date().toISOString(),
+            outcome,
+            wallMs: Date.now() - track.startedAtMs,
+            queueMs: track.queueMs ?? Date.now() - track.startedAtMs,
+            firstFeedbackMs: track.firstFeedbackMs ?? Date.now() - track.startedAtMs,
+            phases: track.phases,
+            workOrdersPlanned: b.callsPlanned,
+            workOrdersDone: track.workOrdersDone,
+            tokensInput: track.tokensInput,
+            tokensOutput: track.tokensOutput,
+            tokensEstimated: b.tokensEstimated,
+            heartbeatGapMaxMs: track.heartbeatGapMaxMs,
+            timeoutMs: b.timeoutMs,
+            models: [...track.models],
+          } satisfies OperationActual);
+        }
+      } catch (persistErr) {
+        console.error("failed to persist operation actual:", persistErr);
+      }
       busy.delete(projectId);
+      opTrack.delete(projectId);
       aborters.delete(projectId);
     });
   return true;
@@ -631,6 +815,8 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
         optionId: b["optionId"] ?? "",
         instruction: b["instruction"] ?? "",
         runtime: instrument(projectId),
+        onPhase: onPhaseFor(projectId),
+        onMeter: onMeterFor(projectId),
       });
     });
     if (!ok) {
@@ -673,15 +859,19 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const optionsCount = b["options"] ? Number(b["options"]) : undefined;
     const work = async (): Promise<void> => {
       const rt = instrument(projectId);
+      const onPhase = onPhaseFor(projectId);
+      const onMeter = onMeterFor(projectId);
       if (op === "consult") {
-        await runConsult({ projectId, level, runtime: rt });
+        await runConsult({ projectId, level, runtime: rt, onPhase, onMeter });
       } else if (op === "candidate") {
-        await runCandidate({ projectId, level, runtime: rt });
+        await runCandidate({ projectId, level, runtime: rt, onPhase, onMeter });
       } else if (op === "decision") {
         await runDecisionSurface({
           projectId,
           level,
           runtime: rt,
+          onPhase,
+          onMeter,
           ...(optionsCount ? { optionsCount } : {}),
         });
       } else if (op === "execute") {
@@ -691,7 +881,7 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
           plannedCalls: plannedCalls(projectId, "execute", level),
           priorIterations: project.iteration - 1,
         });
-        const r = await runExecute({ projectId, level, runtime: rt });
+        const r = await runExecute({ projectId, level, runtime: rt, onPhase, onMeter });
         writeJson(
           abs(iterationDir(projectId, project.iteration), "effort-actual.json"),
           buildActual({
@@ -733,6 +923,8 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
           questionId: b["questionId"] ?? "",
           answer: b["answer"] ?? "",
           runtime: instrument(projectId),
+          onPhase: onPhaseFor(projectId),
+          onMeter: onMeterFor(projectId),
         });
       },
     );
@@ -1056,27 +1248,85 @@ function createProject() {
 // the browser's connection pool starves. So every poll carries its own 5s
 // abort, and the banner derives from the AGE of the last successful poll —
 // never from a rejection that may never come.
+//
+// Poll hardening (ADR-0022 PHASE 1 item 6) — this is the hand-mirrored twin
+// of product/src/poll-logic.ts (browser inline JS cannot import a module);
+// any change to shouldApplyPoll/classifyPollOutcome there must be mirrored
+// here, and vice versa.
+function shouldApplyPollClient(lastAppliedSeq, responseSeq) {
+  return responseSeq > lastAppliedSeq;
+}
+function classifyPollOutcomeClient(o) {
+  if (o.fetchRejected) return "connection-failure";
+  if (o.httpStatus !== 200 || o.parseFailed) return "data-error";
+  return "ok";
+}
+var pollSeq = 0;
+var lastAppliedSeq = 0;
+var pollInFlight = false;
+function finishPoll(seq, outcome, s) {
+  pollInFlight = false;
+  if (outcome === "connection-failure") {
+    // Silent here — the 1s interval's own staleness banner (age of
+    // lastPollOkAt) is the honest signal for a hung/aborted connection.
+    return;
+  }
+  if (outcome === "data-error") {
+    // A DIFFERENT banner from the connection-age one: the App answered, but
+    // with a bad status or unparseable body — never conflated with "the App
+    // is unreachable".
+    connbar.style.display = "block";
+    connbar.textContent = "Erro de dados do servidor — a tentar de novo…";
+    return;
+  }
+  // outcome === "ok" — but a newer poll may have already landed and applied
+  // (out-of-order network delivery); an older one must never win.
+  if (!shouldApplyPollClient(lastAppliedSeq, seq)) return;
+  lastAppliedSeq = seq;
+  lastPollOkAt = Date.now();
+  connbar.style.display = "none";
+  // Re-render only on real change — a quiet poll must not eat a click.
+  var j = JSON.stringify(s);
+  if (j === lastJson) return;
+  lastJson = j;
+  state = s;
+  // In the story/library views a state change refreshes content in place —
+  // no "a carregar…" flash, no eaten interactions.
+  if (view === "agora") render();
+  else if (view === "historia") loadStory();
+  else loadHi();
+}
 function load() {
+  // At most one poll in flight — if the 2.5s timer fires while a poll is
+  // still pending, skip this tick rather than piling another one on top.
+  if (pollInFlight) return;
+  pollInFlight = true;
+  var seq = ++pollSeq;
   var ctl = new AbortController();
   var kill = setTimeout(function () { ctl.abort(); }, 5000);
   fetch("/api/state?project=" + encodeURIComponent(projectId), { signal: ctl.signal })
-    .then(function (r) { return r.json(); })
-    .then(function (s) {
+    .then(function (r) {
       clearTimeout(kill);
-      lastPollOkAt = Date.now();
-      connbar.style.display = "none";
-      // Re-render only on real change — a quiet poll must not eat a click.
-      var j = JSON.stringify(s);
-      if (j === lastJson) return;
-      lastJson = j;
-      state = s;
-      // In the story/library views a state change refreshes content in
-      // place — no "a carregar…" flash, no eaten interactions.
-      if (view === "agora") render();
-      else if (view === "historia") loadStory();
-      else loadHi();
+      var httpStatus = r.status;
+      return r.json().then(
+        function (s) {
+          finishPoll(seq, classifyPollOutcomeClient({
+            fetchRejected: false, httpStatus: httpStatus, parseFailed: false,
+          }), s);
+        },
+        function () {
+          finishPoll(seq, classifyPollOutcomeClient({
+            fetchRejected: false, httpStatus: httpStatus, parseFailed: true,
+          }), null);
+        },
+      );
     })
-    .catch(function () { clearTimeout(kill); /* setInterval retries — the banner tells the Pilot */ });
+    .catch(function () {
+      clearTimeout(kill);
+      finishPoll(seq, classifyPollOutcomeClient({
+        fetchRejected: true, httpStatus: null, parseFailed: false,
+      }), null);
+    });
 }
 
 // Ponto D — cada operação pertence a uma fase; o perfil do projeto dá o
@@ -1203,7 +1453,9 @@ var PHASE_PT = {
   "queued": "na fila",
   "launching": "a lançar o Claude Code",
   "awaiting-model": "a aguardar resposta do modelo",
-  "processing": "a processar a resposta"
+  "response-received": "resposta recebida",
+  "validating-parsing": "a validar",
+  "persisting": "a gravar"
 };
 function liveOpBody(s) {
   var b = s.busy;
@@ -1216,11 +1468,22 @@ function liveOpBody(s) {
   if (b.workOrderId) woLine += ' · <span style="color:var(--dim)">' + esc(b.workOrderId) + "</span>";
   if (b.model) woLine += " · modelo " + esc(b.model) + " · esforço " + esc(b.effortLevel);
   var ht = heartbeatText(b);
+  var agentLine = (b.humanRole || b.agentId)
+    ? '<div class="kv" style="margin-top:6px">Agente: <b>' + esc(b.humanRole || b.agentId) + "</b></div>"
+    : "";
+  var tokensLine = b.tokensDone > 0
+    ? '<div class="kv" style="margin-top:6px">Tokens até agora: <b>' + b.tokensDone.toLocaleString() +
+      "</b> (" + (b.tokensEstimated ? "estimados" : "exatos") + ")</div>"
+    : "";
   var h = '<div class="spin">⏳ ' + esc(PHASE_PT[b.phase] || b.phase) + "</div>" +
     '<div class="kv" style="margin-top:6px">' + woLine + "</div>" +
+    agentLine +
+    '<div class="kv" style="margin-top:6px">Operação <span style="color:var(--dim)">' +
+    esc(b.operationId) + "</span></div>" +
     '<div class="kv" style="margin-top:6px">Tempo decorrido: <b id="elapsed">' +
     elapsedSince(b.startedAt) + '</b> · Última atividade: <span id="hb" style="' +
     (ht.amber ? "color:var(--warn)" : "") + '">' + ht.text + "</span></div>" +
+    tokensLine +
     metersLine(s) +
     '<div class="kv" style="margin-top:6px">Os tokens desta chamada aparecem quando ela terminar.</div>';
   if (b.timeoutMs) {
@@ -1599,8 +1862,13 @@ function auditBody(s) {
     " · schema de dados v<b>" + esc(bl.schemaVersion) + "</b>" +
     " · processo desde " + esc(bl.startedAt ? new Date(bl.startedAt).toTimeString().slice(0, 5) : "?") +
     " · porta <b>" + esc(bl.port) + "</b> · node <b>" + esc(bl.node) + "</b>" +
-    (s.busy ? " · fase <b>" + esc(s.busy.phase) + "</b> · WO <b>" + esc(s.busy.workOrderId || "?") +
-      "</b> · heartbeat " + esc(s.busy.heartbeatAt ? s.busy.heartbeatAt.slice(11, 19) : "?") : "") +
+    (s.busy ? " · operação <b>" + esc(s.busy.operationId) + "</b> · fase <b>" + esc(s.busy.phase) +
+      "</b> · WO <b>" + esc(s.busy.workOrderId || "?") + "</b>" +
+      " · agente <b>" + esc(s.busy.humanRole || s.busy.agentId || "?") + "</b>" +
+      " · heartbeat " + esc(s.busy.heartbeatAt ? s.busy.heartbeatAt.slice(11, 19) : "?") +
+      " · tokens <b>" + s.busy.tokensDone.toLocaleString() + "</b>" +
+      (s.busy.tokensEstimated ? " (estimados)" : " (exatos)") +
+      (s.busy.timeoutMs ? " · timeout <b>" + Math.round(s.busy.timeoutMs / 60000) + "m</b>" : "") : "") +
     "</div>" + metersLine(s) + "</div>";
   if (s.roster) {
     h += '<div class="card"><h2>Agentes temporários</h2>' +

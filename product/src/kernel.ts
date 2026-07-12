@@ -10,7 +10,7 @@
 //   9 runCandidate · 10 decideCandidate · 11 runExecute
 //   12 artifacts auto-return inside runExecute · 13 advanceIteration
 
-import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
 
 import { appendEvent, readEvents } from "./evidence.js";
 import {
@@ -59,6 +59,7 @@ import type {
   EffortProfile,
   EvidenceEvent,
   MeterRecord,
+  OperationActual,
   OptionRecord,
   OptionSeedRef,
   Project,
@@ -438,6 +439,41 @@ function stateFrom(text: string): ProjectStateDoc | null {
 // Work Orders — one bounded runtime call, fully audited: prompt, manifest,
 // meter, response, record. Retries come from the effort spec.
 
+/**
+ * Honest phase reporting for the shell's Busy card (ADR-0022 PHASE 1 items
+ * 3/5). Every phase fired here is something that is REALLY happening at the
+ * instant it fires — never an invented percentage, and never out of order.
+ *
+ * runWorkOrder fires ONLY "response-received" — the instant its own runtime
+ * call resolves. It deliberately does NOT fire "validating-parsing" or
+ * "persisting" itself, even though it does write meter.json/response.md/
+ * workorder.json internally: those are bookkeeping, not the moment that
+ * matters to the Pilot. The real "validating-parsing" (rosterFrom/
+ * questionsFrom/stateFrom/optionFrom) and the real "persisting" (the
+ * GOVERNED write — roster.json, questions.json, candidate.json, the
+ * Decision Surface, the artifact) both happen in each exported operation's
+ * own body, after runWorkOrder returns the raw text. So each caller fires
+ * both itself, in the order they actually occur: "validating-parsing"
+ * immediately before it parses, "persisting" immediately before its own
+ * governed write. (An earlier version fired "persisting" from inside
+ * runWorkOrder too, for the workorder.json write — that produced TWO
+ * "persisting" events per Work Order, the first of which landed BEFORE
+ * "validating-parsing" and broke the honest ordering the Busy card
+ * promises. Fixed by keeping "persisting" caller-side, once, always last.)
+ * agentId is "" for kernel-level orders (roster/synthesize/recommend have no
+ * agentId) — never omitted, so callers can rely on a plain string.
+ */
+export type WorkOrderPhase = "response-received" | "validating-parsing" | "persisting";
+export type OnPhase = (phase: WorkOrderPhase, workOrderId: string, agentId: string) => void;
+export type OnMeter = (meter: MeterRecord, agentId: string) => void;
+
+/** exactOptionalPropertyTypes: forward onPhase/onMeter only when set, never
+ *  as an explicit `undefined` — the established pattern in this file
+ *  (see `...(optionsCount ? { optionsCount } : {})` elsewhere). */
+function phaseCallbacks(onPhase?: OnPhase, onMeter?: OnMeter): { onPhase?: OnPhase; onMeter?: OnMeter } {
+  return { ...(onPhase ? { onPhase } : {}), ...(onMeter ? { onMeter } : {}) };
+}
+
 async function runWorkOrder(args: {
   project: Project;
   kind: WorkOrderKind;
@@ -446,6 +482,8 @@ async function runWorkOrder(args: {
   ctx: AssembledContext;
   level: EffortLevel;
   runtime: Runtime;
+  onPhase?: OnPhase;
+  onMeter?: OnMeter;
 }): Promise<{ record: WorkOrderRecord; text: string; meter: MeterRecord; retriesUsed: number }> {
   const spec = effortSpec(args.level);
   const iteration = args.project.iteration;
@@ -498,6 +536,9 @@ async function runWorkOrder(args: {
         jobId: `${args.project.id}-it${iteration}-${woId}`,
         kind: args.kind,
       });
+      // The runtime call just resolved — real evidence a response exists,
+      // fired the instant it is true.
+      args.onPhase?.("response-received", woId, args.agentId ?? "");
       const meter: MeterRecord = {
         workOrderId: woId,
         model: `${args.runtime.name}:${spec.workerModel}`,
@@ -510,9 +551,14 @@ async function runWorkOrder(args: {
         durationMs: Date.now() - t0,
         estimated: res.usage.estimated ?? false,
       };
+      args.onMeter?.(meter, args.agentId ?? "");
       writeJson(abs(dir, "meter.json"), meter);
       writeFileSync(abs(dir, "response.md"), res.text, "utf8");
       const record: WorkOrderRecord = { ...base, status: "done" };
+      // No onPhase("persisting", ...) here — see the doc comment above.
+      // workorder.json is bookkeeping, written unconditionally; the caller
+      // fires "persisting" once, for the governed write that actually
+      // matters, after it has validated/parsed the text.
       writeJson(abs(dir, "workorder.json"), record);
       return { record, text: res.text, meter, retriesUsed: attempt };
     } catch (e) {
@@ -549,6 +595,27 @@ export function recordOperationCancelled(projectId: string, op: string, scripted
     note: op,
     scripted,
   });
+}
+
+/**
+ * The Kernel-owned, append-only record of one operation's real numbers
+ * (ADR-0022 PHASE 1 items 3/5) — the shell's Busy record is the live view
+ * while an operation runs; this is what survives it. Same append-only
+ * pattern as evidence.jsonl (evidence.ts), one project-level sidecar.
+ */
+export function appendOperationActual(a: OperationActual): void {
+  const path = abs(projectDir(a.projectId), "operations.jsonl");
+  mkdirSync(projectDir(a.projectId), { recursive: true });
+  appendFileSync(path, JSON.stringify(a) + "\n", "utf8");
+}
+
+export function readOperationActuals(projectId: string): OperationActual[] {
+  const path = abs(projectDir(projectId), "operations.jsonl");
+  if (!existsSync(path)) return [];
+  return readText(path)
+    .split(/\r?\n/)
+    .filter((l) => l.trim() !== "")
+    .map((l) => JSON.parse(l) as OperationActual);
 }
 
 // ---------------------------------------------------------------------------
@@ -759,6 +826,8 @@ export async function runConsult(args: {
   level: EffortLevel;
   runtime: Runtime;
   scripted?: boolean;
+  onPhase?: OnPhase;
+  onMeter?: OnMeter;
 }): Promise<{ consulted: string[]; newQuestions: number }> {
   const scripted = args.scripted ?? false;
   const project = getProject(args.projectId);
@@ -777,7 +846,11 @@ export async function runConsult(args: {
       ctx,
       level: args.level,
       runtime: args.runtime,
+      ...phaseCallbacks(args.onPhase, args.onMeter),
     });
+    // The actual parsing starts now — fired here, not inside runWorkOrder,
+    // because this IS where rosterFrom(text) runs.
+    args.onPhase?.("validating-parsing", record.id, "");
     const agents = rosterFrom(text);
     if (!agents) {
       throw new Error(
@@ -785,6 +858,7 @@ export async function runConsult(args: {
       );
     }
     roster = { agents, workOrderId: record.id };
+    args.onPhase?.("persisting", record.id, "");
     writeJson(abs(projectDir(project.id), "roster.json"), roster);
     event(project, "kernel", "roster_ready", scripted, {
       workOrderId: record.id,
@@ -811,8 +885,12 @@ export async function runConsult(args: {
       ctx,
       level: args.level,
       runtime: args.runtime,
+      ...phaseCallbacks(args.onPhase, args.onMeter),
     });
-    mergeQuestions(project.id, agent.id, questionsFrom(text), project.iteration);
+    args.onPhase?.("validating-parsing", record.id, agent.id);
+    const consultQs = questionsFrom(text);
+    args.onPhase?.("persisting", record.id, agent.id);
+    mergeQuestions(project.id, agent.id, consultQs, project.iteration);
     consulted.push(agent.id);
     event(project, "kernel", "consulted", scripted, {
       workOrderId: record.id,
@@ -832,6 +910,8 @@ export async function answerQuestion(args: {
   answer: string;
   runtime: Runtime;
   scripted?: boolean;
+  onPhase?: OnPhase;
+  onMeter?: OnMeter;
 }): Promise<{ reconsulted: string[] }> {
   const scripted = args.scripted ?? false;
   const project = getProject(args.projectId);
@@ -878,8 +958,12 @@ export async function answerQuestion(args: {
       ctx,
       level,
       runtime: args.runtime,
+      ...phaseCallbacks(args.onPhase, args.onMeter),
     });
-    mergeQuestions(project.id, agent.id, questionsFrom(text), project.iteration);
+    args.onPhase?.("validating-parsing", record.id, agent.id);
+    const reconsultQs = questionsFrom(text);
+    args.onPhase?.("persisting", record.id, agent.id);
+    mergeQuestions(project.id, agent.id, reconsultQs, project.iteration);
     reconsulted.push(agent.id);
     event(project, "kernel", "reconsulted", scripted, {
       workOrderId: record.id,
@@ -927,6 +1011,8 @@ export async function runCandidate(args: {
   level: EffortLevel;
   runtime: Runtime;
   scripted?: boolean;
+  onPhase?: OnPhase;
+  onMeter?: OnMeter;
 }): Promise<CandidateState> {
   const scripted = args.scripted ?? false;
   const project = getProject(args.projectId);
@@ -1023,7 +1109,9 @@ export async function runCandidate(args: {
     ctx,
     level: args.level,
     runtime: args.runtime,
+    ...phaseCallbacks(args.onPhase, args.onMeter),
   });
+  args.onPhase?.("validating-parsing", record.id, "");
   const state = stateFrom(text);
   if (!state) {
     throw new Error(`synthesize work order ${record.id} returned no parseable state block`);
@@ -1035,6 +1123,7 @@ export async function runCandidate(args: {
     state,
     status: "candidate",
   };
+  args.onPhase?.("persisting", record.id, "");
   writeJson(abs(stateDir(project.id), "candidate.json"), candidate);
   event(project, "kernel", "candidate_built", scripted, { workOrderId: record.id });
   return candidate;
@@ -1085,6 +1174,8 @@ export async function runExecute(args: {
   level: EffortLevel;
   runtime: Runtime;
   scripted?: boolean;
+  onPhase?: OnPhase;
+  onMeter?: OnMeter;
 }): Promise<{ artifacts: string[]; meters: MeterRecord[]; retriesUsed: number }> {
   const scripted = args.scripted ?? false;
   const project = getProject(args.projectId);
@@ -1126,9 +1217,15 @@ export async function runExecute(args: {
       ctx,
       level: args.level,
       runtime: args.runtime,
+      ...phaseCallbacks(args.onPhase, args.onMeter),
     });
     retriesUsed += r;
     meters.push(meter);
+    // No "validating-parsing" here — EXECUTE_SYSTEM returns the artifact
+    // verbatim, nothing is parsed. What follows (the artifact + provenance
+    // writes below) is real additional persistence beyond runWorkOrder's own
+    // workorder.json, so "persisting" fires again, honestly, right before it.
+    args.onPhase?.("persisting", record.id, agent.id);
     const artifactPath = abs(artifactsDir(project.id, project.iteration), `${agent.id}.md`);
     writeArtifactOnce(artifactPath, text);
     artifacts.push(artifactPath);
@@ -1453,6 +1550,8 @@ export async function runDecisionSurface(args: {
   scripted?: boolean;
   /** Ponto J: the Pilot's explicit table size (2-4); absent = effort-derived. */
   optionsCount?: number;
+  onPhase?: OnPhase;
+  onMeter?: OnMeter;
 }): Promise<DecisionSurface> {
   const scripted = args.scripted ?? false;
   const project = getProject(args.projectId);
@@ -1487,6 +1586,11 @@ export async function runDecisionSurface(args: {
   }
 
   const options: OptionRecord[] = [];
+  // No per-option write happens inside this loop — writeSurface(ds) below,
+  // once, is the real "persisting" moment for the whole Decision Surface.
+  // Track the last Work Order touched so that single "persisting" call
+  // still names a real, already-reported id rather than inventing one.
+  let lastWoId = "";
   for (const [i, angle] of angles.entries()) {
     const b = baseContext(project, spec.contextBudgetChars);
     addApprovedState(b, project, true);
@@ -1524,7 +1628,10 @@ export async function runDecisionSurface(args: {
       ctx,
       level: args.level,
       runtime: args.runtime,
+      ...phaseCallbacks(args.onPhase, args.onMeter),
     });
+    args.onPhase?.("validating-parsing", record.id, angle.id);
+    lastWoId = record.id;
     const parsed = optionFrom(text);
     if (!parsed) continue; // an unparseable voice is not an option — visible in the WO record
     const included = new Set(
@@ -1563,7 +1670,7 @@ export async function runDecisionSurface(args: {
     });
     const ctx = b.build();
     try {
-      const { text } = await runWorkOrder({
+      const { record, text } = await runWorkOrder({
         project,
         kind: "recommend",
         agentId: null,
@@ -1571,7 +1678,10 @@ export async function runDecisionSurface(args: {
         ctx,
         level: args.level,
         runtime: args.runtime,
+        ...phaseCallbacks(args.onPhase, args.onMeter),
       });
+      args.onPhase?.("validating-parsing", record.id, "");
+      lastWoId = record.id;
       for (const block of extractJsonBlocks(text).reverse()) {
         const r = block as { optionId?: unknown; reason?: unknown };
         if (
@@ -1599,6 +1709,7 @@ export async function runDecisionSurface(args: {
     status: "open",
     createdAt: nowIso(),
   };
+  args.onPhase?.("persisting", lastWoId, "");
   writeSurface(ds);
   event(project, "kernel", "decision_opened", scripted, {
     dsId: ds.id,
@@ -1615,6 +1726,8 @@ export async function refineOption(args: {
   instruction: string;
   runtime: Runtime;
   scripted?: boolean;
+  onPhase?: OnPhase;
+  onMeter?: OnMeter;
 }): Promise<{ option: OptionRecord; candidateSeed: GuruSeed }> {
   const scripted = args.scripted ?? false;
   const project = getProject(args.projectId);
@@ -1671,7 +1784,9 @@ export async function refineOption(args: {
     ctx,
     level,
     runtime: args.runtime,
+    ...phaseCallbacks(args.onPhase, args.onMeter),
   });
+  args.onPhase?.("validating-parsing", record.id, base.id);
   const parsed = optionFrom(text);
   if (!parsed) throw new Error(`refine work order ${record.id} returned no parseable option`);
 
@@ -1688,6 +1803,7 @@ export async function refineOption(args: {
     status: "candidate",
   };
   ds.options.push(refined);
+  args.onPhase?.("persisting", record.id, base.id);
   writeSurface(ds);
   event(project, "pilot", "option_refined", scripted, {
     dsId: ds.id,

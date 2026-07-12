@@ -326,3 +326,41 @@ export interface EvidenceEvent {
   effortLevel?: string;
   scripted: boolean;
 }
+
+/**
+ * One completed (or interrupted/failed) operation's real numbers, appended
+ * by the Kernel to projectDir/operations.jsonl (ADR-0022 PHASE 1 items 3/5:
+ * full operation visibility + persisted operation actuals). The shell's Busy
+ * record is the LIVE view of one in-flight operation; this is what remains
+ * of it once it ends — the honest history the Effort Probe and the Pilot's
+ * own review can both draw on. Append-only, like evidence.jsonl.
+ */
+export interface OperationActual {
+  operationId: string;
+  projectId: string;
+  iteration: number;
+  op: string;
+  effortLevel: string;
+  startedAt: string;
+  endedAt: string;
+  outcome: "completed" | "interrupted" | "failed";
+  wallMs: number;
+  /** ms from startOp to the first phase change away from "queued" — real
+   *  shell-side latency (context assembly, etc.) before the first runtime
+   *  call is even issued. */
+  queueMs: number;
+  /** ms from startOp to the first "response-received" phase — the Pilot's
+   *  real wait for the first honest sign the model produced something,
+   *  stronger evidence than the shell's own "launching"/"awaiting-model"
+   *  guesses about the runtime. */
+  firstFeedbackMs: number;
+  phases: { phase: string; at: string }[];
+  workOrdersPlanned: number;
+  workOrdersDone: number;
+  tokensInput: number;
+  tokensOutput: number;
+  tokensEstimated: boolean;
+  heartbeatGapMaxMs: number;
+  timeoutMs: number | null;
+  models: string[];
+}
