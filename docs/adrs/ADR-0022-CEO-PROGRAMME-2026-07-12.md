@@ -69,6 +69,58 @@ Standing prohibitions of the precedence:
 - no mobile exposure before local security is proven;
 - no video-domain logic in the Kernel — ever (RULE E, ADR-0023).
 
+### 4. Addendum (same interview, later the same evening) — the Project
+### Engine is a Kernel mechanism, never a second orchestrator
+
+The Pilot ratified this as a **central invariant of the revision, not an
+optional detail**. The Slicer is not a new AI brain beside the Kernel; it
+is a governed capability OF the Kernel, using the circuits that already
+exist (Work Orders, context manifests, Decision Surfaces, Project State,
+evidence).
+
+Division of responsibility:
+
+- **AI proposes.** A temporary agent, under an authorized slicing Work
+  Order, may propose a **Candidate Project Map**: possible slices,
+  dependencies, material decisions, expected Artifacts, impact risks.
+  A proposal is all it ever is.
+- **The Kernel governs.** It authorizes the slicing Work Order, supplies
+  only the needed context, validates the proposal's schema and invariants,
+  compares against existing Project State, presents MATERIAL changes to
+  the Pilot via Decision Surface, persists the approved version, uses the
+  map to schedule later work, and records every transition.
+- **The Pilot decides** material things: main structure, materially
+  separate slices, changes that invalidate work, creation of child
+  projects, conclusion/abandonment of slices. He does NOT approve every
+  trivial relation — obvious, reversible relations are recorded as
+  authorized movement, not surfaced as bureaucracy.
+
+After the map is approved, graph operations are **deterministic and cost
+zero tokens**: next unblocked slice, dependency lookup, marking dependents
+affected, blocking execution of a blocked slice, preserving unaffected
+slices, navigating back, resuming completed Work Orders. No model walks a
+graph. AI re-enters only for semantic judgment ("does this change touch
+only the final scene or the whole arc?") — and even then it produces a
+proposal, never mutates the map alone.
+
+The Project Map is an **extension of Project State**, not a second truth:
+Project State remains the smallest sufficient summary and holds the
+reference to the approved Map; the Map holds the detailed topology and
+enters context only when needed.
+
+**Audit rule for Phase 4:** if the Project Engine acquires its own
+executor, its own audit log, its own context assembly, its own authority,
+a concurrent FSM, or direct communication with agents — it is wrong and
+has drifted from the Foundation. The binding shape:
+
+```
+Project Engine = Kernel mechanism
+Project Map    = governed state
+Slicer         = authorized Workflow
+AI             = temporary proponent
+Pilot          = authority
+```
+
 ## Consequences
 
 - The standing engineering rules the programme creates are ADR-0023.
