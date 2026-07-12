@@ -50,7 +50,7 @@ import {
   workOrdersDir,
 } from "./paths.js";
 import { abs, readJson, readText, sha256, writeArtifactOnce, writeJson } from "./stores.js";
-import type { Runtime } from "./runtime.js";
+import { OpCancelledError, type Runtime } from "./runtime.js";
 import type {
   AgentRole,
   ApprovedState,
@@ -516,12 +516,39 @@ async function runWorkOrder(args: {
       writeJson(abs(dir, "workorder.json"), record);
       return { record, text: res.text, meter, retriesUsed: attempt };
     } catch (e) {
+      // A cancellation is the Pilot's act, not a failure: it must not burn
+      // the retry budget, must not be disguised as "error", and must reach
+      // the caller INTACT so no message-substring sniffing is ever needed
+      // (ADR-0022 PHASE 1 §4 — the shell's DEVIATION hack retires).
+      if (e instanceof OpCancelledError || (e as { name?: string } | null)?.name === "OpCancelledError") {
+        const record: WorkOrderRecord = { ...base, status: "interrupted" };
+        writeJson(abs(dir, "workorder.json"), record);
+        throw e;
+      }
       lastError = e instanceof Error ? e.message : String(e);
     }
   }
   const record: WorkOrderRecord = { ...base, status: "error", error: lastError };
   writeJson(abs(dir, "workorder.json"), record);
   throw new Error(`work order ${woId} failed: ${lastError}`);
+}
+
+/**
+ * Governed evidence for a Pilot-initiated cancellation (ADR-0022 PHASE 1 §4):
+ * the shell may REQUEST a halt, but only the Kernel writes governed evidence.
+ * Nothing already completed is touched — interruption preserves work.
+ */
+export function recordOperationCancelled(projectId: string, op: string, scripted = false): void {
+  const project = getProject(projectId);
+  appendEvent({
+    ts: nowIso(),
+    projectId,
+    iteration: project.iteration,
+    actor: "pilot",
+    action: "operation_cancelled",
+    note: op,
+    scripted,
+  });
 }
 
 // ---------------------------------------------------------------------------

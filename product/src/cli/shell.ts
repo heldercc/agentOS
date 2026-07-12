@@ -8,7 +8,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { existsSync, readdirSync } from "node:fs";
 
-import { appendEvent, readEvents } from "../evidence.js";
+import { readEvents } from "../evidence.js";
 import {
   AUTO_MAX_LEVEL,
   EFFORT_LEVELS,
@@ -38,6 +38,7 @@ import {
   readRoster,
   readSurfaces,
   readWorkOrders,
+  recordOperationCancelled,
   refineOption,
   reopenProject,
   declareContextSufficient,
@@ -252,28 +253,16 @@ function startOp(
   lastError.delete(projectId);
   void work()
     .catch((e) => {
-      // DEVIATION (kernel.ts is off-limits): runWorkOrder wraps every runtime
-      // failure — cancellation included — into a plain `Error` ("work order
-      // X failed: <lastError message>"), so `instanceof OpCancelledError`
-      // alone does not survive that wrap. The message substring is the only
-      // signal left; OpCancelledError's own wording is distinctive enough
-      // (verified live: browser-driven cancel through a real Work Order).
+      // The Kernel now lets OpCancelledError through intact and writes the
+      // Work Order as "interrupted" (ADR-0022 PHASE 1 §4) — no message
+      // sniffing. The shell only REQUESTS the halt; the governed evidence
+      // is the Kernel's act.
       const msg = e instanceof Error ? e.message : String(e);
       const cancelled =
         e instanceof OpCancelledError ||
-        (e as { name?: string } | null)?.name === "OpCancelledError" ||
-        msg.includes("operação cancelada pelo Piloto");
+        (e as { name?: string } | null)?.name === "OpCancelledError";
       if (cancelled) {
-        const project = getProject(projectId);
-        appendEvent({
-          ts: new Date().toISOString(),
-          projectId,
-          iteration: project.iteration,
-          actor: "pilot",
-          action: "operation_cancelled",
-          note: op,
-          scripted: false,
-        });
+        recordOperationCancelled(projectId, op);
         lastError.set(
           projectId,
           "⏹ Operação parada por ti — o que já estava completo ficou preservado. " +

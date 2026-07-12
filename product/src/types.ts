@@ -156,7 +156,11 @@ export interface WorkOrderRecord {
   model: string;
   effortLevel: string;
   createdAt: string;
-  status: "done" | "error";
+  /** Full lifecycle vocabulary (ADR-0022 PHASE 2 §6). "queued"/"running"
+   *  arrive with resumable Work Orders; "interrupted" is written TODAY when
+   *  the Pilot cancels mid-flight — an interruption is not an error and is
+   *  never disguised as one. */
+  status: "queued" | "running" | "done" | "interrupted" | "timed-out" | "error";
   error?: string;
 }
 
