@@ -1,0 +1,9 @@
+{"ts":"2026-07-12T00:14:57.483Z","session":"smoke-2026-07-12T00-14-57","decisionId":"d-opening","round":1,"proposalId":"A","approachId":"app-economy","action":"approve","scripted":true}
+{"ts":"2026-07-12T00:14:57.484Z","session":"smoke-2026-07-12T00-14-57","decisionId":"d-opening","round":1,"proposalId":"B","approachId":"app-physical","action":"reject","scripted":true}
+{"ts":"2026-07-12T00:14:57.485Z","session":"smoke-2026-07-12T00-14-57","decisionId":"d-opening","round":1,"proposalId":"C","approachId":"app-homage","action":"reject","scripted":true}
+{"ts":"2026-07-12T00:14:57.485Z","session":"smoke-2026-07-12T00-14-57","decisionId":"d-opening","round":1,"proposalId":"A","approachId":"app-economy","action":"select","scripted":true}
+{"ts":"2026-07-12T00:14:57.789Z","session":"smoke-2026-07-12T00-14-57","decisionId":"d-palette","round":1,"proposalId":"A","approachId":"app-economy","action":"approve","scripted":true}
+{"ts":"2026-07-12T00:14:57.790Z","session":"smoke-2026-07-12T00-14-57","decisionId":"d-palette","round":1,"proposalId":"B","approachId":"app-physical","action":"reject","scripted":true}
+{"ts":"2026-07-12T00:14:57.790Z","session":"smoke-2026-07-12T00-14-57","decisionId":"d-palette","round":1,"proposalId":"C","approachId":"app-homage","action":"reject","scripted":true}
+{"ts":"2026-07-12T00:14:57.791Z","session":"smoke-2026-07-12T00-14-57","decisionId":"d-palette","round":1,"proposalId":"A","approachId":"app-economy","action":"select","scripted":true}
+{"ts":"2026-07-12T00:14:57.795Z","session":"smoke-2026-07-12T00-14-57","decisionId":"-","round":0,"candidateId":"cand-app-economy","action":"admit_seed","scripted":true}

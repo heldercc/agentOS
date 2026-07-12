@@ -1,0 +1,28 @@
+{
+  "proposalId": "C",
+  "elements": [
+    {
+      "ref": {
+        "id": "d-palette",
+        "version": "sha256:0d31754ae4dc",
+        "path": "experiments/beta-governance/data/decisions.json",
+        "sha256": "0d31754ae4dccae75d84356e2924acd29ec3f626a81de15392cea0e7f8142637"
+      },
+      "kind": "decision",
+      "chars": 158,
+      "selectionReason": "the decision under governance"
+    },
+    {
+      "ref": {
+        "id": "app-homage",
+        "version": "sha256:a0ad476481f8",
+        "path": "experiments/beta-governance/data/approaches.json",
+        "sha256": "a0ad476481f8d6f9596f926eff76b0a2b05677027a74873fe1cd475f72ee23f3"
+      },
+      "kind": "approach",
+      "chars": 162,
+      "selectionReason": "this proposal's assigned angle"
+    }
+  ],
+  "assembledSha256": "df0b60b6500138f6919a06f5a19e56a34f78302052121d127ebea607ad83431e"
+}

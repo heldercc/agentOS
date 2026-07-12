@@ -65,11 +65,12 @@ commoditized and swappable.
   idea leaving the Incubator.
 
 ## Next Bearing
-The Two Grand Objectives are now explicit (docs/OBJECTIVES.md): (A) token
+The Two Grand Objectives are explicit (docs/OBJECTIVES.md): (A) token
 economy — the Kernel; (B) taste governance by clicks — the user's loop.
-ADR-0015 (Beta 2: the governance question, Grand Objective B's experiment)
-is PROPOSED and awaits the Pilot's ratification.
-Discharge the Beta (ADR-0012), in order: (1) the Pilot authors the real
+ADR-0015 is RATIFIED and its rig is BUILT and VERIFIED on the fake model
+(experiments/beta-governance/, dashboard at localhost:4700). Both Betas now
+wait on the same unblocker: the Pilot's real corpus.
+Discharge Beta 1 (ADR-0012), in order: (1) the Pilot authors the real
 fight-scene corpus (data/ placeholders out); (2) review of the authored data
 against the corpus-shaping risk (engineering/OVERVIEW.md §6); (3) one real
 comparison run through the manual port (dashboard, option 1 in beta.bat);
@@ -87,9 +88,9 @@ commit is invisible state and breaks the model. (Pilot's standing grant,
 
 ## Last Updated
 Session 006 (2026-07-12) — Expedition 2 gated (15 seeds; net retired);
-Trawler+Camera dispositioned (build nothing, four controls adopted). Then:
-the Pilot registered the Two Grand Objectives (A: token economy / B: taste
-governance by clicks — docs/OBJECTIVES.md) and ordered Beta 2's direction;
-ADR-0015 (the governance question) drafted as Proposed, ADR-0012 discipline.
-The Pilot's real fight-scene corpus remains the number-one unblocker for
-both Betas.
+Trawler+Camera dispositioned. The Pilot registered the Two Grand Objectives
+and ratified ADR-0015; the Beta 2 governance rig was built and verified the
+same session (experiments/beta-governance/: blind rounds, pointwise-first
+judging, evidence log, distiller, tray, learned seeds re-entering context —
+smoke 15/15 on the fake model, strict TS, domain-blind). The Pilot's real
+fight-scene corpus remains the number-one unblocker for both Betas.

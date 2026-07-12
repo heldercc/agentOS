@@ -1,0 +1,11 @@
+node_modules/
+dist/
+*.log
+
+# mailbox is the transient manual-port bridge (ADR-0013) — prompts and answers
+# in flight, not evidence. The audit trail lives in runs/.
+mailbox/
+
+# runs/ is deliberately NOT ignored — experiment results are evidence and belong in git.
+# eval/mapping.sealed.json is committed too; the anti-moving-goalpost rule (ADR-0012)
+# relies on git history proving verdicts were recorded before the seal was opened.

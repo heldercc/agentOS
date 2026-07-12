@@ -1,0 +1,39 @@
+{
+  "proposalId": "A",
+  "elements": [
+    {
+      "ref": {
+        "id": "d-impact",
+        "version": "sha256:33941e78dc00",
+        "path": "experiments/beta-governance/data/decisions.json",
+        "sha256": "33941e78dc007655f3311876c029e12127e33c34162c19366abf720be89557e9"
+      },
+      "kind": "decision",
+      "chars": 162,
+      "selectionReason": "the decision under governance"
+    },
+    {
+      "ref": {
+        "id": "app-physical",
+        "version": "sha256:10900b242773",
+        "path": "experiments/beta-governance/data/approaches.json",
+        "sha256": "10900b24277344e98176d68fe3158a5fe83dece2c8ce40a41ceab6a85804da71"
+      },
+      "kind": "approach",
+      "chars": 148,
+      "selectionReason": "this proposal's assigned angle"
+    },
+    {
+      "ref": {
+        "id": "app-economy",
+        "version": "sha256:7d3dc02a0f5f",
+        "path": "experiments/beta-governance/runs/smoke-2026-07-12T00-14-57/learned-sandbox/app-economy.md",
+        "sha256": "7d3dc02a0f5f2b7775503a91e4f3aaf21d90428efd87d7796dbb2d2a4ab4d448"
+      },
+      "kind": "learned-seed",
+      "chars": 739,
+      "selectionReason": "admitted by the owner from selection evidence"
+    }
+  ],
+  "assembledSha256": "54cf374897227fd7dc312a054ffbefc47c7528e19220aebc9cd958210a3a99ad"
+}

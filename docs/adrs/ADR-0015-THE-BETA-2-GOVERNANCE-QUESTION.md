@@ -1,6 +1,9 @@
 # ADR-0015: The Beta 2 Governance Question
 
-- **Status:** Proposed (awaiting the Pilot's ratification)
+- **Status:** Ratified (by the Pilot, Session 006 — "siga tudo fast";
+  registered one-line concession: rig construction starts immediately, not
+  waiting for Beta 1's run to be underway, since Beta 1's unblocker is the
+  Pilot's own data and the rig work is independent)
 - **Date:** 2026-07-12
 - **Deciders:** Pilot (direction ordered in Session 006) + Claude Fable 5 (draft)
 - **Related:** Grand Objectives A/B (docs/OBJECTIVES.md), O1, O4, O5, ADR-0009

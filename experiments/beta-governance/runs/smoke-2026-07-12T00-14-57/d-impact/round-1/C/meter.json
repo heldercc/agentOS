@@ -1,0 +1,12 @@
+{
+  "proposalId": "C",
+  "model": "fake",
+  "requestId": null,
+  "inputTokens": 302,
+  "outputTokens": 74,
+  "cacheCreationInputTokens": 0,
+  "cacheReadInputTokens": 0,
+  "timestamp": "2026-07-12T00:14:58.180Z",
+  "durationMs": 0,
+  "estimated": true
+}

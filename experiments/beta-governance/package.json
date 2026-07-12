@@ -1,0 +1,24 @@
+{
+  "name": "beta-governance",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Beta 2 governance experiment — ADR-0015. Can governed selection measurably improve what the system proposes — taste captured as seeds, entirely through clicks in the UI?",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "check:domain": "tsx src/cli/checkDomain.ts",
+    "dashboard": "tsx src/cli/dashboard.ts",
+    "smoke": "tsx src/cli/smoke.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.68.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "proposalId": "A",
+  "elements": [
+    {
+      "ref": {
+        "id": "d-palette",
+        "version": "sha256:0d31754ae4dc",
+        "path": "experiments/beta-governance/data/decisions.json",
+        "sha256": "0d31754ae4dccae75d84356e2924acd29ec3f626a81de15392cea0e7f8142637"
+      },
+      "kind": "decision",
+      "chars": 158,
+      "selectionReason": "the decision under governance"
+    },
+    {
+      "ref": {
+        "id": "app-economy",
+        "version": "sha256:8b6d76bc0667",
+        "path": "experiments/beta-governance/data/approaches.json",
+        "sha256": "8b6d76bc06679c1547a231694a7dbddc19f9d7f48c38b2743cf607ac60d57b93"
+      },
+      "kind": "approach",
+      "chars": 160,
+      "selectionReason": "this proposal's assigned angle"
+    }
+  ],
+  "assembledSha256": "3531b6673a9c7e470e503af257d34c2e13e7fd06c48f65ce0ba373076fcd668c"
+}

@@ -1,0 +1,23 @@
+{
+  "_note": "PLACEHOLDER approaches — the angles the engine fans proposals across. The judge never sees which approach produced which proposal (sealed per-round mapping). The Pilot's repeated selections among these are the learning signal (ADR-0015).",
+  "approaches": [
+    {
+      "id": "app-economy",
+      "title": "Economy — fewest elements that still land",
+      "tags": ["pacing", "impact"],
+      "hint": "Cut everything optional. Prefer one strong element over three good ones; hold stillness before movement; let a single detail carry the moment."
+    },
+    {
+      "id": "app-homage",
+      "title": "Homage — classic genre grammar",
+      "tags": ["style", "camera"],
+      "hint": "Lean on the genre's proven grammar: dramatic angles, speed lines, held impact frames, high-contrast lighting. Familiar shapes, executed cleanly."
+    },
+    {
+      "id": "app-physical",
+      "title": "Physicality — weight and consequence",
+      "tags": ["impact", "sound"],
+      "hint": "Ground everything in weight: feet plant, cloth drags, breath shows. Impacts displace things. Sound arrives a hair after the image."
+    }
+  ]
+}

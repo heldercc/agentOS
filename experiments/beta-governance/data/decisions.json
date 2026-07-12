@@ -1,0 +1,29 @@
+{
+  "_note": "PLACEHOLDER decisions — same first-cargo domain as beta-coding (the 15-second fight scene / Render Order). The Pilot replaces these with real governed decisions before any real run; the anti-bias review (engineering/OVERVIEW.md §6) applies here too.",
+  "decisions": [
+    {
+      "id": "d-opening",
+      "title": "Opening beat of the fight",
+      "instruction": "Propose the opening two seconds: who moves first, from where, and what the camera does. One paragraph plus a 3-line beat list.",
+      "tags": ["pacing", "camera"]
+    },
+    {
+      "id": "d-palette",
+      "title": "Palette for the arena at night",
+      "instruction": "Propose a color palette (5 swatches, hex) for the night arena, with one sentence on the mood each swatch carries.",
+      "tags": ["style", "palette"]
+    },
+    {
+      "id": "d-impact",
+      "title": "The first clean hit",
+      "instruction": "Propose how the first landed strike reads on screen: timing, framing, sound cue, and the one-frame detail that sells the impact.",
+      "tags": ["impact", "sound", "camera"]
+    },
+    {
+      "id": "d-closer",
+      "title": "Final pose and cut to black",
+      "instruction": "Propose the closing second: final silhouette, light state, and how the cut to black lands relative to the last sound.",
+      "tags": ["pacing", "style"]
+    }
+  ]
+}
