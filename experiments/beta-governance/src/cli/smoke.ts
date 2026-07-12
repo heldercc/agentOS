@@ -16,6 +16,8 @@
 import { existsSync, readdirSync, rmSync } from "node:fs";
 
 import { anchorBodies, consistency, createAnchor, resolveAnchorClick } from "../anchor.js";
+import { clampAutoEffort, nextAutoStep } from "../auto.js";
+import { effortSpec, probeEffort, relevantApproaches, type EffortActual } from "../effort.js";
 import { appendEvent, readSessionEvents } from "../evidence.js";
 import { admitCandidate, draftCandidates, foldStats } from "../distill.js";
 import { approvalRateByRound, decisionProgress } from "../metrics.js";
@@ -235,6 +237,109 @@ async function main(): Promise<void> {
   );
   const rates = approvalRateByRound(readSessionEvents(projRuns, session));
   assert(rates.length >= 1 && (rates[0]?.proposals ?? 0) > 0, "metrics: approval rate by round computed");
+
+  // 7 — effort management (ADR-0017): minimal fans exactly one alternative,
+  // the round records its effort, and the probe's report card is written.
+  const d4 = project.decisions[3];
+  if (!d4) throw new Error("need at least 4 decisions in data/");
+  const minSpec = effortSpec("minimal");
+  assert(
+    relevantApproaches(project.approaches, d4, minSpec).length === 1,
+    "effort: minimal consults exactly one (most relevant) approach",
+  );
+  const estMin = probeEffort({
+    runsDir: projRuns, approaches: project.approaches,
+    decision: d4, level: "minimal", priorRounds: 0,
+  });
+  assert(
+    estMin.alternatives === 1 && estMin.expectedTokens > 0 && estMin.confidence === "low",
+    "effort: probe estimates from priors when no real history exists",
+  );
+  const mMin = await runRound({
+    repoRoot: REPO_ROOT, runsDir: projRuns, session, project,
+    decision: d4, round: 1, port, model: "fake", scripted: true,
+    effort: minSpec, estimate: estMin,
+  });
+  const d4dir = roundDir(projRuns, session, d4.id, 1);
+  assert(
+    Object.keys(mMin.letters).length === 1 && existsSync(abs(d4dir, "effort.json")),
+    "effort: minimal round produced one proposal and recorded its effort",
+  );
+  const actual = readJson<EffortActual>(abs(d4dir, "effort-actual.json"));
+  assert(
+    actual.outcome === "ok" && actual.alternatives === 1 &&
+      actual.actualTokens > 0 && Number.isFinite(actual.tokensDeltaPct),
+    "effort: estimate-vs-actual report card written beside the round",
+  );
+
+  // 7b — high effort runs the adversarial critic and meters it.
+  const highSpec = effortSpec("high");
+  const estHigh = probeEffort({
+    runsDir: projRuns, approaches: project.approaches,
+    decision: d4, level: "high", priorRounds: 1,
+  });
+  assert(
+    estHigh.criticPasses === estHigh.alternatives && estHigh.criticPasses > 0,
+    "effort: high estimates one critic pass per alternative",
+  );
+  const mHigh = await runRound({
+    repoRoot: REPO_ROOT, runsDir: projRuns, session, project,
+    decision: d4, round: 2, port, model: "fake", scripted: true,
+    effort: highSpec, estimate: estHigh,
+  });
+  const d4r2 = roundDir(projRuns, session, d4.id, 2);
+  const hLetters = Object.keys(mHigh.letters);
+  assert(
+    hLetters.every(
+      (l) => existsSync(abs(d4r2, l, "critique.md")) && existsSync(abs(d4r2, l, "meter-critic.json")),
+    ),
+    "effort: high files an adversarial critique + meter per alternative",
+  );
+  const actual2 = readJson<EffortActual>(abs(d4r2, "effort-actual.json"));
+  assert(
+    actual2.criticPasses === hLetters.length,
+    "effort: actuals count the critic passes",
+  );
+
+  // 7c — the probe recommends, but never past the authority line.
+  const rec = probeEffort({
+    runsDir: projRuns, approaches: project.approaches,
+    decision: d4, level: "low", priorRounds: 3,
+  });
+  assert(
+    rec.recommendation === "balanced" && rec.recommendationReason.includes("owner"),
+    "effort: escalation past the line is the owner's call, not the probe's",
+  );
+
+  // 8 — auto-iteration (ADR-0017): movement is automated, authority never.
+  assert(
+    nextAutoStep([
+      { decisionId: "x", rounds: 0, closed: false, judgeable: false, allJudged: false, approvedCount: 0 },
+    ])?.round === 1,
+    "auto: a decision with no round gets round 1 opened",
+  );
+  assert(
+    nextAutoStep([
+      { decisionId: "x", rounds: 1, closed: false, judgeable: true, allJudged: false, approvedCount: 0 },
+    ]) === null,
+    "auto: pointwise judging pending — automation waits for the owner",
+  );
+  assert(
+    nextAutoStep([
+      { decisionId: "x", rounds: 1, closed: false, judgeable: true, allJudged: true, approvedCount: 2 },
+    ]) === null,
+    "auto: selection is authority — never automated",
+  );
+  assert(
+    nextAutoStep([
+      { decisionId: "x", rounds: 1, closed: false, judgeable: true, allJudged: true, approvedCount: 0 },
+    ])?.round === 2,
+    "auto: a fully rejected round iterates automatically",
+  );
+  assert(
+    clampAutoEffort("maximum") === "balanced" && clampAutoEffort("low") === "low",
+    "auto: effort above the authority line is clamped, below passes through",
+  );
 
   // The real learning path must never see any of this.
   assert(

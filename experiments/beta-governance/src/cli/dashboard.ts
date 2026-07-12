@@ -21,6 +21,14 @@ import {
   loadAnchor,
   resolveAnchorClick,
 } from "../anchor.js";
+import { clampAutoEffort, nextAutoStep, type DecisionLoopState } from "../auto.js";
+import {
+  AUTO_MAX_LEVEL,
+  EFFORT_LEVELS,
+  effortSpec,
+  probeEffort,
+  type EffortLevel,
+} from "../effort.js";
 import { appendEvent, readAllEvents, readSessionEvents } from "../evidence.js";
 import { admitCandidate, draftCandidates } from "../distill.js";
 import { approvalRateByRound, decisionProgress } from "../metrics.js";
@@ -54,11 +62,76 @@ interface RoundBusy {
   decisionId: string;
   round: number;
   model: string;
+  level: EffortLevel;
   log: string[];
   error?: string;
 }
 
 let busy: RoundBusy | null = null;
+
+// ---------------------------------------------------------------------------
+// Auto-iteration (Operating Model §5/§8, ADR-0017): the system automates
+// movement — opening the next round when the loop's state dictates it — and
+// never authority. Judging, selecting and effort above the line stay the
+// owner's. Per-project, in-memory: a restart simply stops moving until the
+// owner re-arms it.
+
+interface AutoState {
+  enabled: boolean;
+  level: EffortLevel;
+  model: string;
+  lastAction: string;
+}
+
+const autoState = new Map<string, AutoState>();
+
+function autoFor(projectId: string): AutoState {
+  let s = autoState.get(projectId);
+  if (!s) {
+    s = { enabled: false, level: "low", model: "fake", lastAction: "" };
+    autoState.set(projectId, s);
+  }
+  return s;
+}
+
+function autoTick(): void {
+  if (busy) return; // one round at a time, project-wide
+  const session = todaySession();
+  for (const [projectId, s] of autoState) {
+    if (!s.enabled) continue;
+    let loop: DecisionLoopState[];
+    try {
+      const project = getProject(projectId);
+      loop = project.decisions.map((d) => {
+        const rounds = latestRound(projectId, session, d.id);
+        const jv = rounds > 0 ? judgeView(projectId, session, d.id) : null;
+        return {
+          decisionId: d.id,
+          rounds,
+          closed: jv?.closed ?? false,
+          judgeable: jv !== null && !jv.closed,
+          allJudged: jv?.allJudged ?? false,
+          approvedCount: jv?.approvedLetters.length ?? 0,
+        };
+      });
+    } catch {
+      continue;
+    }
+    const step = nextAutoStep(loop);
+    if (!step) {
+      s.lastAction = "à espera do teu julgamento — nada a mover";
+      continue;
+    }
+    const level = clampAutoEffort(s.level);
+    s.lastAction =
+      `ronda ${step.round} de ${step.decisionId} aberta automaticamente ` +
+      `(${level}${level !== s.level ? ` — "${s.level}" fica acima da linha de autoridade` : ""})`;
+    void startRound(projectId, step.decisionId, s.model, level);
+    return; // one movement per tick, then let the state settle
+  }
+}
+
+setInterval(autoTick, 3000);
 
 function latestRound(projectId: string, session: string, decisionId: string): number {
   const dir = abs(runsDirFor(projectId), session, decisionId);
@@ -69,18 +142,36 @@ function latestRound(projectId: string, session: string, decisionId: string): nu
     .reduce((max, m) => Math.max(max, Number(m[1])), 0);
 }
 
-async function startRound(projectId: string, decisionId: string, model: string): Promise<void> {
+async function startRound(
+  projectId: string,
+  decisionId: string,
+  model: string,
+  level: EffortLevel,
+): Promise<void> {
   const session = todaySession();
   const project = getProject(projectId);
   const decision = project.decisions.find((d) => d.id === decisionId);
   if (!decision) throw new Error(`unknown decision ${decisionId}`);
-  const round = latestRound(projectId, session, decisionId) + 1;
-  const state: RoundBusy = { projectId, decisionId, round, model, log: [] };
+  const priorRounds = latestRound(projectId, session, decisionId);
+  const round = priorRounds + 1;
+  const spec = effortSpec(level);
+  const estimate = probeEffort({
+    runsDir: runsDirFor(projectId),
+    approaches: project.approaches,
+    decision,
+    level,
+    priorRounds,
+  });
+  const state: RoundBusy = { projectId, decisionId, round, model, level, log: [] };
   busy = state;
   try {
-    if (model === "manual") startWorker((m) => state.log.push(m));
+    if (model === "manual") startWorker((m) => state.log.push(m), spec.workerModel);
     const { port, model: modelName } = resolveModel(model, { mailboxDir: MAILBOX_DIR });
-    state.log.push(`round ${round} for ${decisionId} · model ${modelName}`);
+    state.log.push(
+      `round ${round} for ${decisionId} · model ${modelName} · effort ${level} ` +
+        `(${estimate.alternatives} alt${spec.critic ? " + critic" : ""}, ` +
+        `~${estimate.expectedTokens} tok, confiança ${estimate.confidence})`,
+    );
     await runRound({
       repoRoot: REPO_ROOT,
       runsDir: runsDirFor(projectId),
@@ -90,6 +181,8 @@ async function startRound(projectId: string, decisionId: string, model: string):
       round,
       port,
       model: modelName,
+      effort: spec,
+      estimate,
       log: (m) => state.log.push(m),
     });
     state.log.push("done — ready to judge");
@@ -110,6 +203,8 @@ async function startRound(projectId: string, decisionId: string, model: string):
 interface WorkerState {
   active: boolean;
   cmd: string;
+  /** Model the effort level asked the CLI to use (ADR-0017); per-spawn. */
+  model: string;
   current: string | null;
   served: number;
   lastError: string | null;
@@ -118,6 +213,7 @@ interface WorkerState {
 const worker: WorkerState = {
   active: false,
   cmd: process.env["WORKER_CMD"] ?? "claude -p",
+  model: "haiku",
   current: null,
   served: 0,
   lastError: null,
@@ -125,10 +221,16 @@ const worker: WorkerState = {
 const workerFailures = new Map<string, number>();
 const MAX_JOB_ATTEMPTS = 3;
 
-function startWorker(log: (m: string) => void): void {
+/** The command one job spawns: WORKER_CMD wins; else the CLI at the effort model. */
+function workerCmd(): string {
+  return process.env["WORKER_CMD"] ?? `claude -p --model ${worker.model}`;
+}
+
+function startWorker(log: (m: string) => void, model?: string): void {
+  if (model) worker.model = model; // effort may change the model between rounds
   if (worker.active) return;
   worker.active = true;
-  log(`worker: "${worker.cmd}" watching mailbox/outbox`);
+  log(`worker: "${workerCmd()}" watching mailbox/outbox`);
   const outbox = resolve(MAILBOX_DIR, "outbox");
   const inbox = resolve(MAILBOX_DIR, "inbox");
 
@@ -142,6 +244,7 @@ function startWorker(log: (m: string) => void): void {
     if (!job) return;
 
     worker.current = job;
+    worker.cmd = workerCmd();
     const prompt = readText(resolve(outbox, job));
     const child = spawn(worker.cmd, { shell: true, windowsHide: true });
     let out = "";
@@ -186,6 +289,8 @@ interface OptionView {
   verdict: "approve" | "reject" | "";
   selected: boolean;
   asksInterview: boolean;
+  /** Adversarial critique artifact (high/maximum effort), shown beside the option. */
+  critique: string | null;
 }
 
 interface JudgeView {
@@ -232,12 +337,14 @@ function judgeView(projectId: string, session: string, decisionId: string): Judg
     .filter((l) => existsSync(abs(dir, l, "proposal.md")))
     .map((l) => {
       const body = readText(abs(dir, l, "proposal.md"));
+      const critiquePath = abs(dir, l, "critique.md");
       return {
         letter: l,
         body,
         verdict: verdictOf(l),
         selected: selectedLetter === l,
         asksInterview: body.includes(INTERVIEW_MARK),
+        critique: existsSync(critiquePath) ? readText(critiquePath) : null,
       };
     });
   const allJudged = options.length > 0 && options.every((o) => o.verdict !== "");
@@ -254,6 +361,59 @@ function judgeView(projectId: string, session: string, decisionId: string): Judg
     reveal: closed ? mapping.letters : null,
     notes: events.filter((e) => e.action === "pilot_note" && e.note).map((e) => e.note ?? ""),
   };
+}
+
+/** Pull the question lines out of one proposal's interview section. */
+function extractQuestions(body: string): string[] {
+  const lines = body.split(/\r?\n/);
+  const start = lines.findIndex((l) => l.includes(INTERVIEW_MARK));
+  if (start < 0) return [];
+  const out: string[] = [];
+  for (let i = start + 1; i < lines.length && out.length < 5; i++) {
+    const line = lines[i] ?? "";
+    const m = /^\s*(?:\d+[.)]|[-*•])\s*(.+)$/.exec(line);
+    if (m?.[1]) {
+      out.push(m[1].trim());
+    } else if (out.length > 0 && line.trim() !== "") {
+      break; // the section ended
+    }
+  }
+  return out;
+}
+
+interface AggregatedQuestion {
+  text: string;
+  decisionId: string;
+  askedBy: number;
+}
+
+/**
+ * Operating Model §4: the internal demand for context is plural; the visible
+ * interview is singular. Collect every open option's questions, dedupe,
+ * rank by demand — the owner answers one clear question at a time, through
+ * the note channel that already feeds the next round's context.
+ */
+function aggregateQuestions(
+  projectId: string,
+  session: string,
+  decisions: Array<{ id: string }>,
+): AggregatedQuestion[] {
+  const seen = new Map<string, AggregatedQuestion>();
+  for (const d of decisions) {
+    const rounds = latestRound(projectId, session, d.id);
+    if (rounds === 0) continue;
+    const jv = judgeView(projectId, session, d.id);
+    if (!jv || jv.closed) continue;
+    for (const o of jv.options) {
+      for (const q of extractQuestions(o.body)) {
+        const key = q.toLowerCase().replace(/\s+/g, " ").trim();
+        const hit = seen.get(key);
+        if (hit) hit.askedBy += 1;
+        else seen.set(key, { text: q, decisionId: d.id, askedBy: 1 });
+      }
+    }
+  }
+  return [...seen.values()].sort((a, b) => b.askedBy - a.askedBy);
 }
 
 function stateView(projectId: string): unknown {
@@ -280,6 +440,7 @@ function stateView(projectId: string): unknown {
     };
   });
   const cons = consistency(allEvents.concat(readSessionEvents(runsDir, session)));
+  const auto = autoFor(projectId);
   return {
     session,
     project: { id: project.id, name: project.name },
@@ -287,6 +448,15 @@ function stateView(projectId: string): unknown {
     learned: project.learned.map((s) => s.id),
     decisions,
     busy: busy && busy.projectId === projectId ? busy : null,
+    auto: {
+      enabled: auto.enabled,
+      level: auto.level,
+      model: auto.model,
+      lastAction: auto.lastAction,
+      authorityLine: AUTO_MAX_LEVEL,
+    },
+    effortLevels: EFFORT_LEVELS,
+    questions: aggregateQuestions(projectId, session, project.decisions),
     worker: worker.active
       ? { cmd: worker.cmd, current: worker.current, served: worker.served, lastError: worker.lastError }
       : null,
@@ -362,6 +532,41 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
   }
   const runsDir = runsDirFor(projectId);
 
+  if (req.method === "GET" && path === "/api/probe") {
+    const decisionId = url.searchParams.get("decision") ?? "";
+    const rawLevel = url.searchParams.get("level") ?? "low";
+    const level = (EFFORT_LEVELS as string[]).includes(rawLevel)
+      ? (rawLevel as EffortLevel)
+      : "low";
+    const project = getProject(projectId);
+    const decision = project.decisions.find((d) => d.id === decisionId);
+    if (!decision) {
+      sendJson(res, 404, { error: `unknown decision "${decisionId}"` });
+      return;
+    }
+    const estimate = probeEffort({
+      runsDir,
+      approaches: project.approaches,
+      decision,
+      level,
+      priorRounds: latestRound(projectId, session, decisionId),
+    });
+    sendJson(res, 200, { spec: effortSpec(level), estimate });
+    return;
+  }
+
+  if (req.method === "POST" && path === "/api/auto") {
+    const s = autoFor(projectId);
+    s.enabled = body["enabled"] === true;
+    const rawLevel = String(body["level"] ?? s.level);
+    if ((EFFORT_LEVELS as string[]).includes(rawLevel)) s.level = rawLevel as EffortLevel;
+    s.model = body["model"] === "manual" ? "manual" : "fake";
+    if (s.enabled) s.lastAction = "armado — a observar o estado do loop";
+    else s.lastAction = "";
+    sendJson(res, 200, { ok: true, auto: s });
+    return;
+  }
+
   if (req.method === "POST" && path === "/api/round") {
     if (busy && !busy.error) {
       sendJson(res, 409, { error: "a round is already being generated" });
@@ -377,7 +582,13 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       return;
     }
     const model = body["model"] === "manual" ? "manual" : "fake";
-    void startRound(projectId, decisionId, model);
+    // The slider is the owner's hand: any level is legitimate here. Only
+    // automation is clamped (clampAutoEffort) — authority is not.
+    const rawLevel = String(body["level"] ?? "low");
+    const level = (EFFORT_LEVELS as string[]).includes(rawLevel)
+      ? (rawLevel as EffortLevel)
+      : "low";
+    void startRound(projectId, decisionId, model, level);
     sendJson(res, 200, { ok: true });
     return;
   }
@@ -672,6 +883,18 @@ const PAGE = `<!doctype html>
         <label class="tag"><input type="radio" name="model" value="fake" checked> fake (custo zero)</label>
         <label class="tag"><input type="radio" name="model" value="manual"> manual (Claude, subscrição)</label>
       </div>
+      <div class="row" style="margin:0 0 6px">
+        <span class="tag">Esforço:</span>
+        <input type="range" id="effortRange" min="0" max="4" step="1" value="1" style="width:170px">
+        <span class="chip" id="effortName">low</span>
+        <span class="tag" id="effortFor"></span>
+      </div>
+      <div class="note" id="probeBox" style="display:none;margin:0 0 10px"></div>
+      <div class="row" style="margin:0 0 10px">
+        <label class="tag"><input type="checkbox" id="autoChk"> Auto-iteração — abre rondas sozinho;
+          nunca julga, nunca escolhe, nunca passa de «balanced»</label>
+        <span class="tag" id="autoMsg"></span>
+      </div>
       <table id="decisions"><thead><tr>
         <th>decisão</th><th>rondas</th><th>estado</th><th></th>
       </tr></thead><tbody></tbody></table>
@@ -682,6 +905,12 @@ const PAGE = `<!doctype html>
       <div class="note">Julgas cada proposta isolada antes de escolher a vencedora — o protocolo
       não pode fabricar o vencedor. As propostas são cegas; o ângulo revela-se no fecho.
       🎤 marca propostas que pedem entrevista (Artigo 9).</div>
+    </div>
+    <div class="card" id="qCard" style="display:none">
+      <h2>Perguntas ao Pilot — agregadas de todas as propostas abertas</h2>
+      <div id="qList"></div>
+      <div class="note">A entrevista visível é singular: começa pela primeira. Responde com uma
+      nota na decisão respetiva — a resposta entra no contexto da próxima ronda.</div>
     </div>
     <div class="card" id="judge" style="display:none">
       <h2 id="judgeTitle"></h2>
@@ -744,6 +973,95 @@ function api(method, path, body) {
 }
 function model() { return document.querySelector("input[name=model]:checked").value; }
 
+// --- effort (ADR-0017) ------------------------------------------------------
+var LEVELS = ["minimal", "low", "balanced", "high", "maximum"];
+var LEVEL_FOR = {
+  minimal: "canalizações e testes de UI",
+  low: "default de desenvolvimento",
+  balanced: "modo de trabalho normal",
+  high: "modelo mais forte + crítica adversarial",
+  maximum: "só quando TU o escolhes"
+};
+function effortLevel() { return LEVELS[Number(el("effortRange").value)] || "low"; }
+function setEffort(levelName) {
+  var i = LEVELS.indexOf(levelName);
+  el("effortRange").value = String(i >= 0 ? i : 1);
+  el("effortName").textContent = effortLevel();
+  el("effortFor").textContent = LEVEL_FOR[effortLevel()] || "";
+}
+el("effortRange").oninput = function () {
+  setEffort(effortLevel());
+  if (project) localStorage.setItem("agentos-effort-" + project, effortLevel());
+  lastProbeKey = ""; loadProbe();
+  if (el("autoChk").checked) postAuto(true);
+};
+
+var lastProbeKey = "";
+function probeTarget() {
+  if (!state) return null;
+  for (var i = 0; i < state.decisions.length; i++) {
+    var d = state.decisions[i];
+    if (!d.closed && !d.judgeable) return d;
+  }
+  return null;
+}
+function loadProbe() {
+  var t = probeTarget();
+  var box = el("probeBox");
+  if (!t) { box.style.display = "none"; lastProbeKey = "none"; return; }
+  var key = [project, t.id, t.rounds, effortLevel()].join("|");
+  if (key === lastProbeKey) return;
+  lastProbeKey = key;
+  api("GET", "/api/probe?decision=" + encodeURIComponent(t.id) + "&level=" + effortLevel())
+    .then(function (p) {
+      if (p.error) { box.style.display = "none"; return; }
+      var e = p.estimate;
+      var secs = Math.round(e.expectedDurationMs / 1000);
+      var txt = "Sonda (próxima: " + t.id + ", ronda " + (t.rounds + 1) + "): "
+        + e.alternatives + " proposta(s)" + (e.criticPasses ? " + " + e.criticPasses + " crítica(s)" : "")
+        + " · ~" + e.expectedTokens + " tokens · ~" + secs + "s"
+        + " · pressão " + e.pressure + " · confiança " + e.confidence
+        + " (" + e.basedOnRuns + " medições)"
+        + " — qualidade esperada: " + e.expectedQuality + ".";
+      if (e.recommendation !== effortLevel()) {
+        txt += " Recomendação: «" + e.recommendation + "» — " + e.recommendationReason + ".";
+      }
+      box.textContent = txt;
+      box.style.display = "";
+    });
+}
+
+// --- auto-iteração ----------------------------------------------------------
+function postAuto(enabled) {
+  api("POST", "/api/auto", { enabled: enabled, level: effortLevel(), model: model() })
+    .then(function (r) {
+      if (r.auto) el("autoMsg").textContent = r.auto.lastAction || "";
+    });
+}
+el("autoChk").onchange = function () { postAuto(el("autoChk").checked); };
+
+var lastQJson = "";
+function renderQuestions() {
+  var json = JSON.stringify(state.questions);
+  if (json === lastQJson) return;
+  lastQJson = json;
+  var card = el("qCard");
+  if (!state.questions.length) { card.style.display = "none"; return; }
+  card.style.display = "";
+  var host = el("qList");
+  host.innerHTML = "";
+  state.questions.forEach(function (q, i) {
+    var div = document.createElement("div");
+    div.className = "opt";
+    div.innerHTML = "<div class='head'>"
+      + (i === 0 ? "<span class='chip ask'>começa aqui</span>" : "")
+      + "<span class='chip'>" + esc(q.decisionId) + "</span>"
+      + (q.askedBy > 1 ? "<span class='chip'>pedida por " + q.askedBy + " propostas</span>" : "")
+      + "</div><div class='body' style='max-height:none'>" + esc(q.text) + "</div>";
+    host.appendChild(div);
+  });
+}
+
 // --- tabs ------------------------------------------------------------------
 Array.prototype.forEach.call(document.querySelectorAll("nav button"), function (b) {
   b.onclick = function () {
@@ -759,8 +1077,12 @@ function refresh() {
   api("GET", "/api/state").then(function (s) {
     if (s.error) return;
     state = s;
-    if (!project) project = s.project.id;
+    if (!project) {
+      project = s.project.id;
+      setEffort(localStorage.getItem("agentos-effort-" + project) || "low");
+    }
     renderHeader(); renderDecisions(); renderBusy(); renderTray(); renderMetrics();
+    renderQuestions(); loadProbe(); syncAuto();
     if (openDecision) loadJudge(openDecision, true);
     if (anchorId) loadAnchor(true);
   });
@@ -789,8 +1111,18 @@ function renderHeader() {
     openDecision = null; anchorId = null;
     el("judge").style.display = "none";
     lastDecisionsJson = ""; lastTrayJson = ""; lastMetricsJson = "";
+    lastProbeKey = ""; lastQJson = "";
+    setEffort(localStorage.getItem("agentos-effort-" + project) || "low");
     refresh();
   };
+}
+
+function syncAuto() {
+  var a = state.auto;
+  if (!a) return;
+  var chk = el("autoChk");
+  if (document.activeElement !== chk && chk.checked !== a.enabled) chk.checked = a.enabled;
+  el("autoMsg").textContent = a.enabled ? (a.lastAction || "armado") : "";
 }
 
 function renderBusy() {
@@ -825,7 +1157,8 @@ function renderDecisions() {
       b.textContent = d.rounds === 0 ? "Propor" : "Iterar (r" + (d.rounds + 1) + ")";
       b.disabled = !!state.busy;
       b.onclick = function () {
-        api("POST", "/api/round", { decisionId: d.id, model: model() }).then(refresh);
+        api("POST", "/api/round", { decisionId: d.id, model: model(), level: effortLevel() })
+          .then(refresh);
       };
       cell.appendChild(b);
     }
@@ -862,7 +1195,12 @@ function loadJudge(decisionId, quiet) {
             + (o.verdict === "approve" ? "✔ aprovada" : "✘ rejeitada") + "</span>" : "")
         + (o.selected ? "<span class='chip ok'>★ vencedora</span>" : "")
         + "</div>";
-      card.innerHTML = head + "<div class='body'>" + esc(o.body) + "</div>";
+      card.innerHTML = head + "<div class='body'>" + esc(o.body) + "</div>"
+        + (o.critique
+          ? "<details style='margin-top:8px'><summary class='tag' style='cursor:pointer'>"
+            + "crítica adversarial (high/maximum — mais evidência, não um veredicto)</summary>"
+            + "<div class='body' style='max-height:160px'>" + esc(o.critique) + "</div></details>"
+          : "");
       if (!j.closed) {
         var pick = document.createElement("div");
         pick.className = "row";
