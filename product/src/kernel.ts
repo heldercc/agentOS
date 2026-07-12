@@ -46,7 +46,7 @@ import {
   artifactsDir,
   projectDir,
   stateDir,
-  WORKSPACE_DIR,
+  workspaceRoot,
   workOrdersDir,
 } from "./paths.js";
 import { abs, readJson, readText, sha256, writeArtifactOnce, writeJson } from "./stores.js";
@@ -144,11 +144,11 @@ export function setEffortProfile(
 }
 
 export function listProjects(): Project[] {
-  if (!existsSync(WORKSPACE_DIR)) return [];
+  if (!existsSync(workspaceRoot())) return [];
   const out: Project[] = [];
-  for (const name of readdirSync(WORKSPACE_DIR).sort()) {
-    const p = abs(WORKSPACE_DIR, name, "project.json");
-    if (statSync(abs(WORKSPACE_DIR, name)).isDirectory() && existsSync(p)) {
+  for (const name of readdirSync(workspaceRoot()).sort()) {
+    const p = abs(workspaceRoot(), name, "project.json");
+    if (statSync(abs(workspaceRoot(), name)).isDirectory() && existsSync(p)) {
       out.push(readJson<Project>(p));
     }
   }

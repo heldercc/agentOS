@@ -19,3 +19,12 @@ human-intelligence/
 
 # the smoke test's isolated, disposable library
 smoke-hi/
+
+# RULE A (ADR-0023) — isolated data roots: the smoke's disposable workspace,
+# the verify instance's workspace+library (:4901), and the classified archive
+# of scripted records relocated OUT of the Pilot's live workspace (evidence,
+# never deleted).
+workspace-smoke/
+workspace-verify/
+hi-verify/
+workspace-scripted/

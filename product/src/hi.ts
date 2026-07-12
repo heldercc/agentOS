@@ -43,7 +43,7 @@ import {
 import { resolve } from "node:path";
 import YAML from "yaml";
 
-import { PKG_ROOT, projectDir, WORKSPACE_DIR } from "./paths.js";
+import { PKG_ROOT, projectDir, workspaceRoot } from "./paths.js";
 import { abs, readJson, readText, sha256 } from "./stores.js";
 
 /**
@@ -52,7 +52,10 @@ import { abs, readJson, readText, sha256 } from "./stores.js";
  * scripted seeds must never enter the owner's real one.
  */
 export function hiDir(): string {
-  return process.env["PRODUCT_HI_DIR"] ?? resolve(PKG_ROOT, "human-intelligence");
+  const env = process.env["PRODUCT_HI_DIR"];
+  // Relative values resolve under product/ (same contract as
+  // PRODUCT_WORKSPACE_DIR — RULE A, ADR-0023); absolute values win as-is.
+  return env ? resolve(PKG_ROOT, env) : resolve(PKG_ROOT, "human-intelligence");
 }
 function seedsRoot(): string {
   return resolve(hiDir(), "seeds");
@@ -761,10 +764,10 @@ interface LegacyExpertise {
 export function migrateLegacyExpertise(): number {
   let migrated = 0;
   const stores: { path: string; project: string | null }[] = [];
-  const shared = abs(WORKSPACE_DIR, "_shared", "expertise.json");
+  const shared = abs(workspaceRoot(), "_shared", "expertise.json");
   if (existsSync(shared)) stores.push({ path: shared, project: null });
-  if (existsSync(WORKSPACE_DIR)) {
-    for (const name of readdirSync(WORKSPACE_DIR)) {
+  if (existsSync(workspaceRoot())) {
+    for (const name of readdirSync(workspaceRoot())) {
       const p = abs(projectDir(name), "expertise.json");
       if (name !== "_shared" && existsSync(p)) stores.push({ path: p, project: name });
     }

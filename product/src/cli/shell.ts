@@ -70,7 +70,7 @@ import {
   projectDir,
   REPO_ROOT,
   workOrdersDir,
-  WORKSPACE_DIR,
+  workspaceRoot,
 } from "../paths.js";
 import { OpCancelledError, resolveRuntime, type GenerateArgs, type Runtime } from "../runtime.js";
 import { abs, readJson, readText, writeJson } from "../stores.js";
@@ -522,7 +522,7 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const optionsCount = q("options") ? Number(q("options")) : undefined;
     json(res, 200, {
       probe: probeEffort({
-        workspaceDir: WORKSPACE_DIR,
+        workspaceDir: workspaceRoot(),
         level,
         plannedCalls: plannedCalls(project.id, q("op") || "execute", level, optionsCount),
         priorIterations: project.iteration - 1,
@@ -697,7 +697,7 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
         });
       } else if (op === "execute") {
         const estimate = probeEffort({
-          workspaceDir: WORKSPACE_DIR,
+          workspaceDir: workspaceRoot(),
           level,
           plannedCalls: plannedCalls(projectId, "execute", level),
           priorIterations: project.iteration - 1,

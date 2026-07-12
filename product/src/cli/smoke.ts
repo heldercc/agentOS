@@ -55,7 +55,7 @@ import {
 import { resolveSeeds } from "../resolver.js";
 import { computeStaleness } from "../build.js";
 import { buildActual } from "../effort.js";
-import { projectDir, WORKSPACE_DIR } from "../paths.js";
+import { LIVE_WORKSPACE_DIR, projectDir, workspaceRoot } from "../paths.js";
 import { abs, readJson, readText, sha256, writeArtifactOnce } from "../stores.js";
 import { FakeRuntime, OpCancelledError } from "../runtime.js";
 import type { ContextManifest, EvidenceEvent } from "../types.js";
@@ -77,15 +77,26 @@ const runtime = new FakeRuntime();
 async function main(): Promise<void> {
   console.log("product shell smoke — the 13-step loop on the fake runtime\n");
 
-  // The smoke runs against an ISOLATED Human Intelligence library — scripted
-  // seeds must never enter the owner's real one (hi.ts reads this per call).
-  const smokeHi = abs(WORKSPACE_DIR, "..", "smoke-hi");
+  // RULE A (ADR-0023): the smoke redirects the ENTIRE data tree — workspace
+  // AND Human Intelligence library — before touching anything. Scripted work
+  // never enters the Pilot's live workspace, metrics, expertise or evidence
+  // BY CONSTRUCTION, not by name-based filtering. Both roots are disposable.
+  process.env["PRODUCT_WORKSPACE_DIR"] = "workspace-smoke";
+  const smokeWs = workspaceRoot();
+  if (existsSync(smokeWs)) rmSync(smokeWs, { recursive: true, force: true });
+  const smokeHi = abs(smokeWs, "..", "smoke-hi");
   if (existsSync(smokeHi)) rmSync(smokeHi, { recursive: true, force: true });
   process.env["PRODUCT_HI_DIR"] = smokeHi;
+  check(
+    "RULE A. smoke workspace is isolated from the Pilot's live one",
+    workspaceRoot() !== LIVE_WORKSPACE_DIR && projectDir("smoke-loop").startsWith(smokeWs),
+  );
 
   // Real meters, if any exist, must be exactly as many after the smoke:
-  // scripted work never feeds the Effort Probe.
-  const samplesBefore = collectMeterSamples(WORKSPACE_DIR).length;
+  // scripted work never feeds the Effort Probe. With RULE A isolation the
+  // live workspace is untouchable from here; the count guards the invariant
+  // inside the isolated root too.
+  const samplesBefore = collectMeterSamples(workspaceRoot()).length;
 
   // A clean slate: the smoke project is disposable by definition.
   const preexisting = "smoke-loop";
@@ -218,7 +229,7 @@ async function main(): Promise<void> {
 
   // Step 11–12 — governed execution; artifacts auto-return to the workspace.
   const probeBefore = probeEffort({
-    workspaceDir: WORKSPACE_DIR,
+    workspaceDir: workspaceRoot(),
     level: "minimal",
     plannedCalls: 1,
     priorIterations: 0,
@@ -622,8 +633,8 @@ async function main(): Promise<void> {
   check("all smoke evidence is scripted", events.every((e) => e.scripted));
   check(
     "smoke meters never feed the probe",
-    collectMeterSamples(WORKSPACE_DIR).length === samplesBefore,
-    `before=${samplesBefore} after=${collectMeterSamples(WORKSPACE_DIR).length}`,
+    collectMeterSamples(workspaceRoot()).length === samplesBefore,
+    `before=${samplesBefore} after=${collectMeterSamples(workspaceRoot()).length}`,
   );
   check("smoke project id carries the smoke- prefix", project.id.startsWith("smoke-"));
 

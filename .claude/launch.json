@@ -9,7 +9,9 @@
       "env": {
         "PRODUCT_PORT": "4901",
         "PRODUCT_RUNTIME": "fake",
-        "PRODUCT_FAKE_DELAY_MS": "6000"
+        "PRODUCT_FAKE_DELAY_MS": "6000",
+        "PRODUCT_WORKSPACE_DIR": "workspace-verify",
+        "PRODUCT_HI_DIR": "hi-verify"
       }
     }
   ]
