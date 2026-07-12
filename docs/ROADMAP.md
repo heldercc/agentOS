@@ -21,7 +21,7 @@ across sessions, open questions dispositioned. *(Closed — Session 004,
 Revision 7. Deferrals recorded in CURRENT.md.)*
 
 ## Phase 1 · Kernel (minimum honest engine)
-File-based stores (seeds, Project State, Mentors-as-data, Artifacts), work
+File-based stores (seeds, Project State, Senseis-as-data, Artifacts), work
 orders as files, audit log, effort metering v0 (measure actuals; estimation
 comes later). Runs locally through a replaceable development operator (the
 initial operator is recorded in Navigation, not here).
@@ -31,10 +31,10 @@ audited — with the engine containing zero domain words.
 ## Phase 2 · Executive Loop (the daily App)
 The governance cycle: open the app → Kernel loads Project State → open
 decisions presented per layer → Pilot evaluates / approves / deletes →
-Mentors work the consequences → tomorrow, new proposals. Seed Composer v0
-(teach in natural language). Mentor management v0 (create / edit / improve /
+Senseis work the consequences → tomorrow, new proposals. Seed Composer v0
+(teach in natural language). Sensei management v0 (create / edit / improve /
 retire workers through governance — ADR-0008).
-**Exit:** the Pilot governs a full daily cycle, including editing a Mentor,
+**Exit:** the Pilot governs a full daily cycle, including editing a Sensei,
 without touching internals or writing formats.
 
 ## Phase 3 · Scheduler & Reuse
@@ -46,7 +46,7 @@ estimation + calibration (ADR-0006).
 and the audit log proves why.
 
 ## Phase 4 · Production Line 1 — the Render Order
-The fight spec as cargo: layer Mentors (story, characters, shots, style,
+The fight spec as cargo: layer Senseis (story, characters, shots, style,
 production) propose; the Pilot governs daily; the Render Order accumulates
 with full provenance.
 **Exit:** Render Order v1 — complete enough that a rendering system the
@@ -61,8 +61,8 @@ domain leakage from the engine.
 
 ## Phase 6 · Self-Improvement Under Governance
 The Seed Harvester in production (ADR-0009): success signals → candidate
-seeds with evidence → Pilot validates → incorporation into Mentors or the
-system, provenance `learned`. Plus system-proposed Mentor and workflow
+seeds with evidence → Pilot validates → incorporation into Senseis or the
+system, provenance `learned`. Plus system-proposed Sensei and workflow
 refinements — always proposals through Executive Mode (Articles 1, 2, 4).
 **Exit:** Objective O4 proven — at least one harvested seed in active use,
 integrated by explicit Pilot decision, plus one measured improvement.

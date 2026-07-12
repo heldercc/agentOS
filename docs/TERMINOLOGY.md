@@ -11,18 +11,24 @@ New concepts enter here first.
 - **Copilot** — any AI collaborator working *with* the Pilot on AgentOS itself:
   its architecture, book and code. Copilots are deliberately fungible; Navigation
   exists so that any Copilot, on any day, can resume with full context. Distinct
-  from Mentors, which work *inside* the running system.
+  from Senseis, which work *inside* the running system.
 
 ## Actors
 
 - **Agent** — the generic term for an autonomous executor operating under Kernel
-  governance. In the Foundation, exactly one kind of Agent exists:
-- **Mentor** — an Agent equipped with one or more Mentor Expertises. Mentors do
-  the intelligent work. (Hierarchies of subordinate agents are an Incubator idea,
-  not a Foundation concept.)
-- **Mentor Expertise** — a named, versioned bundle of capability: the seeds,
-  context rules and behavioral constraints that define how a Mentor thinks in a
-  domain. Substance, not personality (ADR-0002).
+  governance. In the Foundation, exactly one kind of Agent exists: the temporary
+  model role (vessel) that carries a Sensei's expertise into a Work Order.
+- **Sensei** — the user-authored, evolving composition of GuruSeeds: human
+  intelligence with a name. Every seed belongs to exactly ONE Sensei; the picked
+  option's victory returns to the Sensei who voiced it; graduation derives from
+  use. A Sensei is NOT an AI agent — temporary model roles remain vessels; the
+  Sensei is what they carry. (Canonical and FINAL by the Pilot's decision,
+  ADR-0021; formerly "Mentor" — ADR-0002/ADR-0020 §6, whose substance is
+  preserved. "Mentor" survives only in historical documents and migration
+  compatibility.)
+- **Sensei Expertise** — a named, versioned bundle of capability: the seeds,
+  context rules and behavioral constraints that define how a Sensei thinks in a
+  domain. Substance, not personality (ADR-0002, renamed by ADR-0021).
 
 ## Expertise
 
@@ -45,7 +51,7 @@ New concepts enter here first.
   success) or `imported` (external expertise, e.g. open-source skills,
   admitted individually). Three origins, one gate: the Pilot validates all.
 - **Seed Resolver** — the mechanism that, for a given task, resolves which
-  GuruSeeds belong in a Mentor's context. The durable requirement is
+  GuruSeeds belong in a Sensei's context. The durable requirement is
   **attributable and auditable selection**: for any action, it is always
   knowable which seeds were active and why. Full determinism is an
   aspiration, not a promise; deterministic *replay* via the logged selection
@@ -53,12 +59,12 @@ New concepts enter here first.
   refined at reconciliation, Session 004.)
 - **Seed lifecycle** — founding sketch: idea → draft → candidate (on
   probation, applied but watched) → approved → core (constitutional to a
-  Mentor; maximally protected by Article 4) → deprecated → archived. Sketch
+  Sensei; maximally protected by Article 4) → deprecated → archived. Sketch
   only; full design owes an ADR before Phase 5.
 
 ## Context & State
 
-- **Context** — the working set assembled for a Mentor's action: resolved seeds +
+- **Context** — the working set assembled for a Sensei's action: resolved seeds +
   Project State + Memory + task input. Always explicit, always enumerated in the
   audit log. Context is a scheduled resource (Article 5), not something the Pilot
   repeats.
@@ -83,7 +89,7 @@ New concepts enter here first.
 - **Kernel** — the governance core. The only component that authorizes execution,
   schedules context, spends effort budget and writes the audit log. The Kernel
   does no intelligent work; it governs it.
-- **Workflow** — a defined multi-step unit of work, executed by Mentors under a
+- **Workflow** — a defined multi-step unit of work, executed by Senseis under a
   Kernel work order, producing Artifacts.
 - **Effort Probe** — the Kernel instrument that, before execution, estimates the
   effort a piece of work will demand — tokens, time, refinement rounds — and the

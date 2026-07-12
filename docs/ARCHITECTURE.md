@@ -15,11 +15,11 @@ can this component do?" but "who is allowed to know what, and who answers for it
 A proposal considered for this revision arranged the system as a single vertical
 chain:
 
-    Kernel → Mentor → Mentor Expertise → Seed Resolver → Agents
+    Kernel → Sensei → Sensei Expertise → Seed Resolver → Agents
     → Artifacts → Project State → Memory → Navigation
 
 This chain is rejected, for one reason worth recording: **it is a list, not an
-architecture.** It places actors (Kernel, Mentors), configurations (Expertise),
+architecture.** It places actors (Kernel, Senseis), configurations (Expertise),
 mechanisms (Seed Resolver), outputs (Artifacts) and stores (Project State,
 Memory) into a single hierarchy where the arrow means nothing consistent —
 sometimes "commands", sometimes "produces", sometimes "is stored in". An
@@ -35,8 +35,8 @@ relate. The separation below keeps every concept from the chain, sorted by kind.
 │ scheduling (via Seed Resolver) · audit log · versioning.   │
 │ Presented to the Pilot through Executive Mode.             │
 ├───────────────────────────────────────────────────────────┤
-│ INTELLIGENCE PLANE — Mentors                               │
-│ Mentors composed from Mentor Expertises execute Workflows: │
+│ INTELLIGENCE PLANE — Senseis                               │
+│ Senseis composed from Sensei Expertises execute Workflows: │
 │ model calls, tool use, sandboxed operations.               │
 ├───────────────────────────────────────────────────────────┤
 │ STATE PLANE — the stores                                   │
@@ -65,12 +65,12 @@ does no intelligent work. Keeping it small and boring is a design goal.
 recommendation and effort meet the Pilot's decision. It renders governance; it
 has no privileged path around it.
 
-### Intelligence Plane — Mentors
-All intelligent work happens here, and only here. A Mentor receives a work order
+### Intelligence Plane — Senseis
+All intelligent work happens here, and only here. A Sensei receives a work order
 with an assembled Context and produces Artifacts plus a Project State delta.
-Mentors are stateless between work orders: everything they know arrived through
+Senseis are stateless between work orders: everything they know arrived through
 scheduled context; everything they conclude leaves as versioned output.
-*Boundary:* a Mentor cannot exceed the scope or effort budget stamped on its work
+*Boundary:* a Sensei cannot exceed the scope or effort budget stamped on its work
 order, cannot reach a store directly, and cannot alter a seed (Article 4).
 
 ### State Plane — Stores
@@ -95,7 +95,7 @@ its users.
 4. The Kernel schedules context: the **Seed Resolver** selects relevant
    GuruSeeds; the Kernel assembles seeds + Project State + Memory + input into
    an enumerated Context and logs exactly what was placed.
-5. A Mentor executes the Workflow within the work order; the Effort Probe meters
+5. A Sensei executes the Workflow within the work order; the Effort Probe meters
    actuals continuously and can halt at budget.
 6. Artifacts and a Project State delta return through the Kernel, with full
    provenance.
@@ -137,7 +137,7 @@ Engineering rules the Constitution implies; any violation is a defect.
 - The Pilot can halt anything, at any time, and the system remains consistent.
 - No domain knowledge in the engine: the Kernel and App shell are blind to
   what is being produced; domain lives only in governed data (ADR-0008).
-- Mentors are data, not code: creating, editing, improving or retiring a
+- Senseis are data, not code: creating, editing, improving or retiring a
   worker is a governed, versioned, auditable operation (ADR-0008).
 
 ## Deliberately Undecided (deferred to future ADRs)

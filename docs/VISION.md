@@ -18,7 +18,7 @@ not, never re-created from scratch when it already exists.
 
 AgentOS applies the same discipline to context. **Context is an operating-system
 resource.** The system's job is *context scheduling* — deciding what a working
-Mentor needs to know, resolving it from versioned stores, and placing it into the
+Sensei needs to know, resolving it from versioned stores, and placing it into the
 working window at the right moment — instead of *context repetition*, where the
 human is the paging mechanism.
 
@@ -52,7 +52,7 @@ produced them. An hour spent teaching the system is an hour invested, not spent.
 An owner can:
 
 1. **Teach** — encode a piece of judgment as a GuruSeed in minutes.
-2. **Delegate** — hand a Workflow to a Mentor, trusting the Kernel to enforce
+2. **Delegate** — hand a Workflow to a Sensei, trusting the Kernel to enforce
    effort, scope and approval limits.
 3. **Review** — trace any Artifact to the exact seeds, context and decisions that
    produced it.

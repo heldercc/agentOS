@@ -2,6 +2,12 @@
 
 # The Human Intelligence Library
 
+> **Naming note (ADR-0021, 2026-07-12):** the expert entity is canonically
+> the **SENSEI** — the Pilot's final decision. This document is his verbatim
+> design and keeps his original voice; read every "Mentor" below as
+> "Sensei". The on-disk library migrated `mentors/` → `senseis/` in Session
+> 013; `mentors/` paths below are historical.
+
 Read this as the specification of the on-disk Human Intelligence Library.
 
 ## 0. Principle

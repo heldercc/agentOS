@@ -45,13 +45,13 @@ steer; B without A is a governance toy that dies at scale.
 
 Open the App → the Kernel loads Project State (nothing re-explained) → open
 decisions presented per layer → the Pilot evaluates, approves, deletes → the
-Mentors work the consequences → tomorrow, new proposals are waiting.
+Senseis work the consequences → tomorrow, new proposals are waiting.
 **Proven when:** the Pilot governs a real objective in minutes a day, across
 many days, and the thread never breaks between sessions.
 
 ## O2 — Workers Are Governed, Not Coded
 
-The Pilot creates, edits, improves and retires Mentors through the same loop
+The Pilot creates, edits, improves and retires Senseis through the same loop
 — never by writing formats or touching code (ADR-0008).
 **Proven when:** a new agent with a new skill exists for a new project, and
 the audit log shows it was born and shaped entirely through governance.
@@ -60,7 +60,7 @@ the audit log shows it was born and shaped entirely through governance.
 
 The Pilot expresses judgment in natural language; the system structures,
 confirms, versions (ADR-0007).
-**Proven when:** a seed taught today visibly changes a Mentor's proposals
+**Proven when:** a seed taught today visibly changes a Sensei's proposals
 tomorrow, and its provenance says "taught by the Pilot".
 
 ## O4 — Learned Expertise (Seed Harvester)
@@ -69,7 +69,7 @@ The system observes its own work and detects recurring success — an agent's
 output selected repeatedly, a feature approved again and again — and distills
 the pattern into a **candidate seed**, presented to the Pilot with its
 evidence (ADR-0009). The Pilot validates, edits or discards; only then is it
-incorporated — into a Mentor, or into the system itself.
+incorporated — into a Sensei, or into the system itself.
 **Proven when:** at least one seed in active use was *harvested from observed
 success* and *integrated by the Pilot's explicit decision*, and its provenance
 says so.
@@ -77,19 +77,19 @@ says so.
 ## O5 — One Gate for All Expertise
 
 Two origins — taught and learned — one gate: the Pilot. Nothing enters a
-Mentor or the system without validation (Article 4). Every seed carries its
+Sensei or the system without validation (Article 4). Every seed carries its
 origin, its evidence, and its integration decision.
 **Proven when:** the seed store can answer, for every seed: who created it,
 from what, validated when, incorporated where.
 
 ## O6 — The Compounding Brain
 
-Use by use, day by day: seeds accumulate, Mentors improve, new agents appear
+Use by use, day by day: seeds accumulate, Senseis improve, new agents appear
 for new projects — and all of it is the Pilot's asset: explicit, versioned,
 portable, independent of any model vendor. The Kernel is fed by the Pilot's
 taste, whether implemented directly or learned-and-validated.
 **Proven when:** month N's factory is measurably more capable than month 1's,
-and the difference is enumerable as seeds and Mentor versions — not vibes.
+and the difference is enumerable as seeds and Sensei versions — not vibes.
 
 ## O7 — The Scheduler Beats Full Reload
 

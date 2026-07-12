@@ -151,7 +151,8 @@ but by accumulating, governing and reusing human judgement.
    a first-class scheduled element, (b) the traceability SURFACED to the
    user, and (c) the vocabulary: the roster is not "the agents we have", it
    is the temporary vessels convened this phase. ADR-0002 (Mentor Expertises
-   replace personas) said this in Book I; the correction makes it product law.
+   replace personas — the entity is now the Sensei, ADR-0021) said this in
+   Book I; the correction makes it product law.
 2. **Continuity:** the rig's learned-seeds line (ADR-0015 distiller → tray →
    admitted seeds re-entering context) is the same asset under an earlier
    name. The Expertise Library is its product form; seeds distilled from
