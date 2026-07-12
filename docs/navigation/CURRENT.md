@@ -15,14 +15,20 @@ slice is BUILT and its MECHANICS are proven on the real cli runtime
 GuruSeeds + Mentors on disk in the gitignored product/human-intelligence/
 library, per-Work-Order Seed Resolver with reasons, Decision Surfaces,
 artifact provenance sidecars, evidence returning to the seed, the "Chega"
-sufficiency act, Inteligência Humana UI. Provenance is now IMMUTABLE
-(Session 012, the Pilot's + GPT's parecer): recoverable version history
-for Seeds and Mentors, telemetry outside the versioned content, verifiable
-hashes on artifact/manifest/seed; smoke 72/72. HONEST LIMIT: the live
-proof's user was the Copilot under the standing test directive, and the
-"Chega" act has passed only on the FakeRuntime — the HUMAN proof, with the
-Pilot governing, is still owed and belongs to the first true Beta. The
-rigs stay frozen.
+sufficiency act, Inteligência Humana UI. Provenance is IMMUTABLE (Session
+012): recoverable version history, telemetry in append-only sidecars,
+verifiable hashes. THE HUMAN PROOF LANDED (Session 013): the Pilot ran his
+first true test alone — a children's story from one messy sentence to a
+CONCLUDED project in 100 minutes, "Chega" exercised by his own hand — and
+returned a ten-point parecer. Executing it produced the SENSEI REFORM: the
+expert entity is the Sensei (ex-Mentor), every seed belongs to exactly ONE
+Sensei (transversality is dead), the picked option's victory returns to
+the Sensei who voiced it (append-only), graduation derives from use, and
+reference Senseis keep a write-once base photo for sanity measurement.
+Plus: per-phase effort profile, visible tokens+timer, Pilot-controlled
+table size (2–4 options), the 5-craft reference Guild shipped as candidate
+seeds, and the read-only metrics extractor. Smoke 88/88. The rigs stay
+frozen.
 
 ## Current State
 Copilot transition complete (founding Copilot → current Copilot); founding
@@ -120,18 +126,15 @@ commit is invisible state and breaks the model. (Pilot's standing grant,
 2026-07-12.)
 
 ## Last Updated
-Session 012 (2026-07-12, evening) — executed the Pilot's + GPT's pareceres:
-(a) provenance made IMMUTABLE — recoverable version history for Seeds and
-Mentors, telemetry in append-only sidecars, content hashes everywhere,
-artifact sidecars hash-verifiable, real library migrated; (b) the proof
-declaration CORRECTED honestly — mechanics proven on a real model, but the
-user was the Copilot and "Chega" passed only on the FakeRuntime; the human
-proof belongs to the Pilot's first true test; (c) the VISIBLE JOURNEY +
-PROJECT LIFECYCLE — persistent human journey over the internal stages, one
-dominant card ("O que precisa de ti agora"), technical diagnostics in
-Detalhes/Auditoria, semantic colour, Melhorar as a directed new pass, and
-Concluir/Reabrir as governed acts (archive, never delete). Smoke 77/77,
-tsc strict. The Pilot's first true human test — children's stories for his
-nieces, built inside the product from one minimal sentence — is IMMINENT:
-the App is up on :4900 with nothing pre-authored. Detail:
-docs/navigation/2026/2026-07.md addenda 8–13.
+Session 013 (2026-07-12, night) — the Pilot's first HUMAN test happened and
+was measured (100 min, 27k tokens, 23 questions, 15 deferred by "Chega",
+2 decisions, concluded); his ten-point parecer was interviewed and executed
+as the SENSEI REFORM (ownership, victories, graduation, base photo) plus
+per-phase effort profile, visible spend, 2–4 option control, the 5-craft
+reference Guild (candidates awaiting his admission) and the metrics
+extractor. Smoke 88/88, tsc strict, verified live on :4901 against the
+real migrated library; the live :4900 needs a restart to run the reform.
+ROADMAP registered (parecer doc): the Absorption menu (photos + interview,
+video v2) and system-suggested Sensei evolutions, both Pilot-governed.
+Detail: docs/navigation/2026/2026-07.md addendum Session 013;
+docs/reviews/PARECER-PILOTO-2026-07-12-NOITE.md.
