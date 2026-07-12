@@ -13,6 +13,7 @@ import {
   answerQuestion,
   decideCandidate,
   decideSeedGoverned,
+  declareContextSufficient,
   getProject,
   initProject,
   listArtifacts,
@@ -451,6 +452,52 @@ async function main(): Promise<void> {
     `before=${samplesBefore} after=${collectMeterSamples(WORKSPACE_DIR).length}`,
   );
   check("smoke project id carries the smoke- prefix", project.id.startsWith("smoke-"));
+
+  // ADR-0020 §3 — "enough; build with what you have" is a first-class
+  // governance act: open questions defer (kept, never dropped), the loop
+  // moves on, and the candidate carries the deferral visibly.
+  if (existsSync(projectDir("smoke-enough"))) {
+    rmSync(projectDir("smoke-enough"), { recursive: true, force: true });
+  }
+  const p2 = initProject("Smoke Enough", "Prove the governed sufficiency exit.", true);
+  await runConsult({ projectId: p2.id, level: "minimal", runtime, scripted: true });
+  check("21a. the interview opens with questions on the table", openQuestions(p2.id).length > 0);
+  const deferredN = declareContextSufficient(p2.id, "enough for the smoke", true);
+  check(
+    "21b. declaring sufficiency defers every open question",
+    deferredN > 0 && openQuestions(p2.id).length === 0,
+  );
+  check("21c. the stage moves on without an answer", stageOf(p2.id) === "candidate");
+  check(
+    "21d. deferred questions are kept, never dropped",
+    readQuestions(p2.id).some((q) => q.status === "deferred"),
+  );
+  await runCandidate({ projectId: p2.id, level: "minimal", runtime, scripted: true });
+  const synthEnough = readWorkOrders(p2.id, 1)
+    .filter((w) => w.kind === "synthesize")
+    .pop();
+  const synthEnoughManifest = synthEnough
+    ? readJson<ContextManifest>(
+        abs(
+          projectDir(p2.id),
+          "iterations",
+          "it-001",
+          "workorders",
+          synthEnough.id,
+          "manifest.json",
+        ),
+      )
+    : null;
+  check(
+    "21e. the candidate context carries the deferral visibly",
+    synthEnoughManifest?.elements.some((el) => el.ref.id === "context-sufficient") === true,
+  );
+  check(
+    "21f. the sufficiency act is in the story as the user's",
+    storyOf(p2.id)
+      .iterations.flatMap((i) => i.items)
+      .some((i) => i.action === "context_sufficient" && i.actor === "pilot"),
+  );
 
   console.log(`\n${passed}/${passed + failed} checks passed`);
   if (failed > 0) process.exit(1);

@@ -813,6 +813,35 @@ export async function answerQuestion(args: {
   return { reconsulted };
 }
 
+/**
+ * ADR-0020 §3 — the Pilot may declare context sufficient at any time; it is
+ * a first-class governance act, not a shortcut. Every open question is
+ * DEFERRED — kept on file, never silently dropped — and the loop moves on;
+ * the candidate build carries the deferred needs as explicit unresolved
+ * matter the user can inspect and overturn.
+ */
+export function declareContextSufficient(
+  projectId: string,
+  note?: string,
+  scripted = false,
+): number {
+  const project = getProject(projectId);
+  const questions = readQuestions(project.id);
+  let deferred = 0;
+  for (const q of questions) {
+    if (q.status !== "open") continue;
+    q.status = "deferred";
+    deferred += 1;
+  }
+  writeQuestions(project.id, questions);
+  event(project, "pilot", "context_sufficient", scripted, {
+    note:
+      (note?.trim() ? `${note.trim()} — ` : "") +
+      `${deferred} pergunta(s) adiada(s) pela minha mão`,
+  });
+  return deferred;
+}
+
 // ---------------------------------------------------------------------------
 // Step 9 — build the candidate Project State.
 
@@ -840,6 +869,22 @@ export async function runCandidate(args: {
   addApprovedState(b, project, true);
   addExpertise(b, project, []);
   addAnswers(b, project, true);
+  // ADR-0020 §3: deferred needs stay visible — the candidate must record
+  // them as unresolved, never assume answers the user chose not to give.
+  const deferredQs = readQuestions(project.id).filter((q) => q.status === "deferred");
+  if (deferredQs.length > 0) {
+    b.add({
+      kind: "pilot-note",
+      id: "context-sufficient",
+      absPath: abs(projectDir(project.id), "questions.json"),
+      content:
+        "The user declared the context sufficient. These questions remain " +
+        "deliberately unanswered — list them as unresolved; assume nothing:\n" +
+        deferredQs.map((q) => `- ${q.text}`).join("\n"),
+      reason: "ADR-0020 §3 — deferred questions stay visible, never silently dropped",
+      required: true,
+    });
+  }
   // Decided Decision Surfaces are authoritative direction (steps 9-10 of the
   // interaction-model slice): the candidate folds every selection, with its
   // refinement lineage visible.

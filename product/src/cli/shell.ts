@@ -37,6 +37,7 @@ import {
   readSurfaces,
   readWorkOrders,
   refineOption,
+  declareContextSufficient,
   recordSeedEvidenceGoverned,
   runCandidate,
   runConsult,
@@ -279,6 +280,12 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
       b["editedRule"]?.trim() || undefined,
     );
     json(res, 200, { ok: true });
+    return;
+  }
+  if (req.method === "POST" && url.pathname === "/api/interview/enough") {
+    const b = await body(req);
+    const n = declareContextSufficient(b["project"] ?? "", b["note"]?.trim() || undefined);
+    json(res, 200, { deferred: n });
     return;
   }
   if (req.method === "POST" && url.pathname === "/api/hi/seed/evidence") {
@@ -653,8 +660,10 @@ function primaryCard() {
       '<div class="kv">pedida por: <b>' + esc(t.askedBy.join(", ")) + "</b> · " +
       s.interview.open + " em aberto (as restantes esperam)</div>" +
       '<label>A tua resposta</label><textarea id="answer"></textarea>' +
-      '<div style="margin-top:10px"><button onclick="answer(\\'' + esc(t.id) + '\\')">Responder</button></div>' +
-      '<div class="kv" style="margin-top:6px">Ao responder, os agentes que perguntaram reconsultam automaticamente.</div></div>';
+      '<div class="row" style="margin-top:10px"><button onclick="answer(\\'' + esc(t.id) + '\\')">Responder</button>' +
+      '<button class="ghost" onclick="enough()">Chega — constrói com o que tens</button></div>' +
+      '<div class="kv" style="margin-top:6px">Ao responder, os agentes que perguntaram reconsultam automaticamente. ' +
+      "Declarar suficiência é teu por direito: as perguntas em aberto ficam adiadas e visíveis, nunca respondidas por ti.</div></div>";
   } else if (s.stage === "decide" && s.surface) {
     h = decisionSurfaceCard(s.surface);
   } else if (s.stage === "candidate") {
@@ -885,6 +894,7 @@ var LBL = {
   seed_rejected: "GuruSeed rejeitada por mim",
   seed_candidate_extracted: "O refinamento gerou uma GuruSeed candidata",
   seed_evidence: "A minha evidência voltou à GuruSeed",
+  context_sufficient: "Declarei o contexto suficiente — perguntas adiadas",
   mentor_saved: "Mentor guardado/evoluído",
   decision_opened: "Superfície de decisão aberta",
   option_refined: "Refinei uma opção",
@@ -1090,6 +1100,10 @@ function op(name) {
 }
 function answer(qid) {
   post("/api/answer", { project: projectId, questionId: qid, answer: $("answer").value })
+    .then(load).catch(function (e) { alert(e.message); });
+}
+function enough() {
+  post("/api/interview/enough", { project: projectId, note: "" })
     .then(load).catch(function (e) { alert(e.message); });
 }
 function decide(d) {

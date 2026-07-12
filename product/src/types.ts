@@ -138,7 +138,9 @@ export interface QuestionNeed {
   askedBy: string[];
   /** Iteration in which the need first appeared. */
   iteration: number;
-  status: "open" | "answered";
+  /** "deferred" = the user declared context sufficient with this still open
+   *  (ADR-0020 §3) — kept on file, never silently dropped. */
+  status: "open" | "answered" | "deferred";
   answer?: string;
   answeredAt?: string;
 }
@@ -238,6 +240,7 @@ export interface EvidenceEvent {
     | "roster_ready"
     | "consulted"
     | "question_answered"
+    | "context_sufficient"
     | "reconsulted"
     | "candidate_built"
     | "state_approved"
