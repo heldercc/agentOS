@@ -1,9 +1,12 @@
 // The reference Guild (parecer 2026-07-12 noite, pontos F/F2): five crafts
-// useful to the Pilot, preloaded as reference Senseis with state-of-the-art
-// seeds. Governance is preserved: senseis ship active (they are structure),
-// but every seed ships as a CANDIDATE — only the Pilot admits judgement into
-// use. Each reference Sensei gets its write-once base photo at v1, so the
-// sanity of whatever brain the Pilot develops stays measurable forever.
+// useful to the Pilot, preloaded as reference Senseis with UNSOURCED draft
+// seeds — model-authored, no primary sources, NOT validated and NOT "state
+// of the art" (ADR-0022 PHASE 7D; the researched Reference Guild comes
+// later, with sources, dates, confidence and licenses). Governance is
+// preserved: senseis ship active (they are structure), but every seed ships
+// as a CANDIDATE in quarantine — only the Pilot admits judgement into use.
+// Each reference Sensei gets its write-once base photo at v1, so the sanity
+// of whatever brain the Pilot develops stays measurable forever.
 //
 // Idempotent: an existing sensei id is never touched. Run once:
 //   npx tsx src/cli/preload-guild.ts
@@ -243,7 +246,8 @@ for (const ref of GUILD) {
       domains: ref.domains,
       projects: [],
       origin: "imported",
-      provenanceNote: `Guilda base — seed de referência do ${ref.title}; o Piloto audita e admite`,
+      provenanceNote: `Guilda base — rascunho SEM FONTES do ${ref.title} (não validado, ` +
+        `não “estado da arte”); o Piloto audita e admite`,
       owner: "agentos-base",
       sensei: ref.id,
     });
@@ -253,5 +257,5 @@ for (const ref of GUILD) {
 
 console.log(
   `guilda base: ${senseis} sensei(s) de referência, ${photos} fotografia(s) base, ` +
-    `${seeds} seed(s) candidatas à espera do julgamento do Piloto`,
+    `${seeds} seed(s) candidatas SEM FONTES em quarentena, à espera do julgamento do Piloto`,
 );
