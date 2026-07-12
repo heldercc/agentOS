@@ -53,6 +53,7 @@ import {
   snapshotSenseiBase,
 } from "../hi.js";
 import { resolveSeeds } from "../resolver.js";
+import { computeStaleness } from "../build.js";
 import { buildActual } from "../effort.js";
 import { projectDir, WORKSPACE_DIR } from "../paths.js";
 import { abs, readJson, readText, sha256, writeArtifactOnce } from "../stores.js";
@@ -625,6 +626,28 @@ async function main(): Promise<void> {
     `before=${samplesBefore} after=${collectMeterSamples(WORKSPACE_DIR).length}`,
   );
   check("smoke project id carries the smoke- prefix", project.id.startsWith("smoke-"));
+
+  // PHASE 1.1 (ADR-0022) — product-aware staleness, acceptance gates 1 and 2:
+  // a docs-only commit must NOT mark the product stale; a product-source
+  // commit MUST. Tested pure — no git fixtures, no live repo dependence.
+  const docsOnly = computeStaleness({
+    buildSha: "aaa1111", buildProductSha: "ppp1111",
+    repoHead: "bbb2222", productHead: "ppp1111", dirtyProductFiles: 0,
+  });
+  check("gate 1. docs-only commit does not mark the product stale", !docsOnly.stale);
+  check("gate 1b. docs-only movement is disclosed as such", docsOnly.repoMovedDocsOnly);
+  const productMoved = computeStaleness({
+    buildSha: "aaa1111", buildProductSha: "ppp1111",
+    repoHead: "ccc3333", productHead: "ppp2222", dirtyProductFiles: 0,
+  });
+  check("gate 2. product-source commit marks the product stale", productMoved.stale);
+  check("gate 2b. product movement is never softened to docs-only", !productMoved.repoMovedDocsOnly);
+  const inPlace = computeStaleness({
+    buildSha: "aaa1111", buildProductSha: "ppp1111",
+    repoHead: "aaa1111", productHead: "ppp1111", dirtyProductFiles: 2,
+  });
+  check("gate 2c. dirty product files are disclosed without a stale claim",
+    !inPlace.stale && inPlace.dirtyProduct);
 
   // ADR-0020 §3 — "enough; build with what you have" is a first-class
   // governance act: open questions defer (kept, never dropped), the loop

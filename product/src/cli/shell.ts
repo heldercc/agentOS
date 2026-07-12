@@ -6,7 +6,6 @@
 // action per loop stage; everything below the authority line moves by itself.
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { execSync } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 
 import { appendEvent, readEvents } from "../evidence.js";
@@ -67,6 +66,7 @@ import {
 import {
   iterationDir,
   MAILBOX_DIR,
+  PKG_ROOT,
   projectDir,
   REPO_ROOT,
   workOrdersDir,
@@ -74,7 +74,8 @@ import {
 } from "../paths.js";
 import { OpCancelledError, resolveRuntime, type GenerateArgs, type Runtime } from "../runtime.js";
 import { abs, readJson, readText, writeJson } from "../stores.js";
-import type { EffortProfile, MeterRecord } from "../types.js";
+import { computeStaleness, gitDirtyProductFiles, gitProductHead, gitShortHead } from "../build.js";
+import { DATA_SCHEMA_VERSION, type EffortProfile, type MeterRecord } from "../types.js";
 
 /** PRODUCT_PORT lets a verification instance run beside the live :4900 shell. */
 const PORT = Number(process.env["PRODUCT_PORT"] ?? 4900);
@@ -82,43 +83,56 @@ const RUNTIME_NAME = process.env["PRODUCT_RUNTIME"] ?? "cli";
 const runtime = resolveRuntime(RUNTIME_NAME, { mailboxDir: MAILBOX_DIR });
 
 // ---------------------------------------------------------------------------
-// Ponto A (parecer 2026-07-12, LIVE EXECUTION OBSERVABILITY): the running
-// version must be visible. Captured once at boot — never let the Pilot
-// believe a committed feature is active when the process has not restarted.
-function gitShortHead(cwd: string): string | null {
-  try {
-    return execSync("git rev-parse --short HEAD", { cwd, stdio: ["ignore", "pipe", "ignore"] })
-      .toString("utf8")
-      .trim();
-  } catch {
-    return null;
-  }
-}
-
+// Ponto A (parecer 2026-07-12) + PHASE 1.1 (ADR-0022): the running version
+// must be visible AND staleness must be PRODUCT-AWARE — a docs-only commit
+// must never make this App claim newer code exists. Captured once at boot.
+const BOOT_SHA = gitShortHead(REPO_ROOT) ?? "unknown";
 const BUILD = {
-  sha: gitShortHead(REPO_ROOT) ?? "unknown",
+  sha: BOOT_SHA,
+  productSha: gitProductHead(REPO_ROOT, BOOT_SHA === "unknown" ? "HEAD" : BOOT_SHA),
+  version: (() => {
+    try {
+      return readJson<{ version?: string }>(abs(PKG_ROOT, "package.json")).version ?? "0.0.0";
+    } catch { return "0.0.0"; }
+  })(),
+  schemaVersion: DATA_SCHEMA_VERSION,
   startedAt: new Date().toISOString(),
   port: PORT,
   runtime: RUNTIME_NAME,
   node: process.version,
 };
 
-// repoHeadNow(): the CURRENT repo HEAD, re-checked at most every 30s — cheap
-// enough to call on every state poll without shelling out constantly.
-let repoHeadCache: { at: number; sha: string | null } | null = null;
-function repoHeadNow(): string | null {
+// Repo movement re-checked at most every 30s — cheap enough to call on every
+// state poll without shelling out constantly.
+let repoCache: {
+  at: number; repoHead: string | null; productHead: string | null; dirty: number;
+} | null = null;
+function repoNow(): { repoHead: string | null; productHead: string | null; dirty: number } {
   const now = Date.now();
-  if (repoHeadCache && now - repoHeadCache.at < 30_000) return repoHeadCache.sha;
-  const sha = gitShortHead(REPO_ROOT);
-  repoHeadCache = { at: now, sha };
-  return sha;
+  if (repoCache && now - repoCache.at < 30_000) return repoCache;
+  repoCache = {
+    at: now,
+    repoHead: gitShortHead(REPO_ROOT),
+    productHead: gitProductHead(REPO_ROOT, "HEAD"),
+    dirty: gitDirtyProductFiles(REPO_ROOT).length,
+  };
+  return repoCache;
 }
 
-function buildInfo(): { sha: string; startedAt: string; port: number; runtime: string; node: string;
-  repoHead: string | null; stale: boolean } {
-  const repoHead = repoHeadNow();
-  const stale = repoHead !== null && BUILD.sha !== "unknown" && repoHead !== BUILD.sha;
-  return { ...BUILD, repoHead, stale };
+function buildInfo(): typeof BUILD & {
+  repoHead: string | null; productHead: string | null; dirtyProductFiles: number;
+  stale: boolean; repoMovedDocsOnly: boolean; dirtyProduct: boolean;
+} {
+  const r = repoNow();
+  const s = computeStaleness({
+    buildSha: BUILD.sha,
+    buildProductSha: BUILD.productSha,
+    repoHead: r.repoHead,
+    productHead: r.productHead,
+    dirtyProductFiles: r.dirty,
+  });
+  return { ...BUILD, repoHead: r.repoHead, productHead: r.productHead,
+    dirtyProductFiles: r.dirty, ...s };
 }
 
 // One-time, mechanical, provenance-preserving (ADR-0020 §9).
@@ -1425,17 +1439,34 @@ function setView(v) { view = v; render(); }
 function buildLine(build) {
   if (!build) return "";
   var started = new Date(build.startedAt).toTimeString().slice(0, 5);
-  return '<div class="kv" style="margin:-12px 0 16px">build <b>' + esc(build.sha) +
-    "</b> · processo desde " + started + "</div>";
+  return '<div class="kv" style="margin:-12px 0 16px">v' + esc(build.version || "?") +
+    " · build <b>" + esc(build.sha) + "</b> · processo desde " + started + "</div>";
 }
+// PHASE 1.1 (ADR-0022): the warn card fires ONLY on committed product-source
+// movement. Docs-only repo movement and uncommitted product edits are
+// disclosed in words that do not claim "newer code exists".
 function staleCard(build) {
-  if (!build || !build.stale) return "";
+  if (!build) return "";
   var started = new Date(build.startedAt).toTimeString().slice(0, 5);
-  return '<div class="card" style="border-left:4px solid var(--warn)"><div class="kv" ' +
-    'style="color:var(--warn)">⚠ Há código mais recente no repositório (HEAD ' +
-    esc(build.repoHead) + '). Esta App continua a executar a versão ' + esc(build.sha) +
-    " iniciada às " + started + ". Reiniciar é um ato operacional explícito — " +
-    "pede ao operador.</div></div>";
+  if (build.stale) {
+    return '<div class="card" style="border-left:4px solid var(--warn)"><div class="kv" ' +
+      'style="color:var(--warn)">⚠ Código de PRODUTO mais recente no repositório (produto ' +
+      esc(build.productHead) + ', HEAD ' + esc(build.repoHead) +
+      '). Esta App continua a executar a versão ' + esc(build.sha) +
+      " iniciada às " + started + ". Reiniciar é um ato operacional explícito — " +
+      "pede ao operador.</div></div>";
+  }
+  var notes = [];
+  if (build.repoMovedDocsOnly) {
+    notes.push("o repositório avançou (HEAD " + esc(build.repoHead) +
+      "), mas sem alterações ao produto — esta App está atual");
+  }
+  if (build.dirtyProduct) {
+    notes.push(build.dirtyProductFiles + " ficheiro(s) de produto por commitar no disco " +
+      "(trabalho em curso, não é código publicado)");
+  }
+  if (!notes.length) return "";
+  return '<div class="kv" style="margin:-8px 0 12px;opacity:.75">' + notes.join(" · ") + "</div>";
 }
 
 function render() {
@@ -1570,8 +1601,13 @@ function auditBody(s) {
     (s.busy ? ' · em curso: <b>' + esc(s.busy.op) + "</b> desde " + esc(s.busy.startedAt.slice(11, 19)) : "") +
     "</div>" +
     '<div class="kv" style="margin-top:6px">' +
-    "build <b>" + esc(bl.sha) + "</b> · HEAD do repo <b>" + esc(bl.repoHead || "?") + "</b> (" +
-    (bl.stale ? "stale" : "atual") + ")" +
+    "produto v<b>" + esc(bl.version || "?") + "</b> · build <b>" + esc(bl.sha) + "</b>" +
+    " · produto no build <b>" + esc(bl.productSha || "?") + "</b>" +
+    " · HEAD do repo <b>" + esc(bl.repoHead || "?") + "</b>" +
+    " · produto no HEAD <b>" + esc(bl.productHead || "?") + "</b> (" +
+    (bl.stale ? "STALE — produto avançou" : bl.repoMovedDocsOnly ? "atual; repo avançou sem produto" : "atual") + ")" +
+    (bl.dirtyProduct ? " · <b>" + bl.dirtyProductFiles + "</b> ficheiro(s) de produto por commitar" : "") +
+    " · schema de dados v<b>" + esc(bl.schemaVersion) + "</b>" +
     " · processo desde " + esc(bl.startedAt ? new Date(bl.startedAt).toTimeString().slice(0, 5) : "?") +
     " · porta <b>" + esc(bl.port) + "</b> · node <b>" + esc(bl.node) + "</b>" +
     (s.busy ? " · fase <b>" + esc(s.busy.phase) + "</b> · WO <b>" + esc(s.busy.workOrderId || "?") +

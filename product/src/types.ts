@@ -10,6 +10,14 @@
 
 import type { EffortLevel } from "./effort.js";
 
+/**
+ * The declared version of every persisted record schema in this file
+ * (ADR-0022, PHASE 1.1 discloses it; PHASE 2's migration registry governs
+ * how it moves). The current on-disk shape is baptized v1 — bump ONLY with
+ * a registered migration, never silently (RULE C/D, ADR-0023).
+ */
+export const DATA_SCHEMA_VERSION = 1;
+
 /** A reference to a versioned data element (provenance by reference, never copy). */
 export interface ElementRef {
   id: string;
