@@ -18,9 +18,11 @@ import {
   type EffortLevel,
 } from "../effort.js";
 import {
+  addExpertiseGoverned,
   advanceIteration,
   answerQuestion,
   decideCandidate,
+  decideExpertiseGoverned,
   getProject,
   initProject,
   listArtifacts,
@@ -36,8 +38,10 @@ import {
   runConsult,
   runExecute,
   stageOf,
+  storyOf,
   topOpenQuestion,
 } from "../kernel.js";
+import { readExpertise, SHARED_ID } from "../expertise.js";
 import { iterationDir, MAILBOX_DIR, projectDir, WORKSPACE_DIR } from "../paths.js";
 import { resolveRuntime } from "../runtime.js";
 import { abs, readText, writeJson } from "../stores.js";
@@ -210,6 +214,43 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     });
     return;
   }
+  if (req.method === "GET" && url.pathname === "/api/story") {
+    json(res, 200, storyOf(q("project")));
+    return;
+  }
+  if (req.method === "GET" && url.pathname === "/api/expertise") {
+    json(res, 200, {
+      project: readExpertise(q("project")),
+      shared: readExpertise(SHARED_ID),
+    });
+    return;
+  }
+  if (req.method === "POST" && url.pathname === "/api/expertise") {
+    const b = await body(req);
+    if (!b["title"]?.trim() || !b["body"]?.trim()) {
+      json(res, 400, { error: "título e corpo são obrigatórios" });
+      return;
+    }
+    const record = addExpertiseGoverned(b["project"] ?? "", {
+      reach: b["reach"] === "reusable" ? "reusable" : "project",
+      title: b["title"],
+      body: b["body"],
+      tags: (b["tags"] ?? "").split(",").map((t) => t.trim()).filter((t) => t !== ""),
+      provenanceNote: b["provenanceNote"]?.trim() || "adicionada à mão na Biblioteca",
+    });
+    json(res, 200, { id: record.id });
+    return;
+  }
+  if (req.method === "POST" && url.pathname === "/api/expertise/decide") {
+    const b = await body(req);
+    decideExpertiseGoverned(
+      b["project"] ?? "",
+      b["expertiseId"] ?? "",
+      b["decision"] === "admit" ? "admit" : "discard",
+    );
+    json(res, 200, { ok: true });
+    return;
+  }
   if (req.method === "GET" && url.pathname === "/api/artifact") {
     const project = getProject(q("project"));
     const a = listArtifacts(project.id).find(
@@ -368,6 +409,30 @@ const PAGE = /* html */ `<!doctype html>
           border-radius:10px; margin-bottom:10px; color:var(--tx); text-decoration:none; }
   .proj:hover { border-color:var(--acc); }
   .proj small { color:var(--dim); }
+  .tabs { display:flex; gap:6px; margin:0 0 16px; }
+  .tab { padding:6px 16px; border-radius:20px; border:1px solid var(--line); color:var(--dim);
+         background:transparent; font-size:13px; font-weight:600; cursor:pointer; }
+  .tab.on { color:var(--acc); border-color:var(--acc); background:rgba(77,163,255,.08); }
+  .tl { border-left:2px solid var(--line); margin-left:8px; padding-left:18px; }
+  .tli { position:relative; margin-bottom:14px; }
+  .tli::before { content:""; position:absolute; left:-24px; top:6px; width:9px; height:9px;
+                 border-radius:50%; background:var(--line); }
+  .tli.pilot::before { background:var(--acc); }
+  .tli .when { font-size:11px; color:var(--dim); }
+  .tli .lbl { font-weight:600; }
+  .tli .who { font-size:11px; padding:0 7px; border-radius:10px; border:1px solid var(--line);
+              color:var(--dim); margin-left:6px; }
+  .tli.pilot .who { color:var(--acc); border-color:var(--acc); }
+  .xchip { display:inline-block; font-size:11.5px; color:var(--warn); border:1px dashed var(--warn);
+           border-radius:10px; padding:0 8px; margin:2px 4px 2px 0; }
+  .itdiv { margin:20px 0 12px; color:var(--acc); font-weight:700; font-size:13px; }
+  .xp { background:#0b0f14; border:1px solid var(--line); border-radius:8px; padding:10px 12px;
+        margin-bottom:8px; }
+  .xp .st { font-size:11px; padding:0 8px; border-radius:10px; border:1px solid var(--line);
+            margin-left:6px; }
+  .xp .st.admitted { color:var(--ok); border-color:var(--ok); }
+  .xp .st.candidate { color:var(--warn); border-color:var(--warn); }
+  .xp .st.discarded { color:var(--dim); }
 </style>
 </head>
 <body>
@@ -380,6 +445,7 @@ var projectId = new URLSearchParams(location.search).get("p");
 var state = null;
 var levelChosen = null;
 var lastJson = "";
+var view = "agora";
 
 function esc(s) {
   return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
@@ -430,7 +496,11 @@ function load() {
       if (j === lastJson) return;
       lastJson = j;
       state = s;
-      render();
+      // In the story/library views a state change refreshes content in
+      // place — no "a carregar…" flash, no eaten interactions.
+      if (view === "agora") render();
+      else if (view === "historia") loadStory();
+      else loadXp();
     })
     .catch(function () { /* poll again */ });
 }
@@ -527,6 +597,16 @@ function stateDoc(doc) {
     "<dt>Próxima ação</dt><dd><b>" + esc(doc.nextAction) + "</b></dd></dl>";
 }
 
+function tabsBar() {
+  function t(id, label) {
+    return '<button class="tab' + (view === id ? " on" : "") +
+      '" onclick="setView(\\'' + id + '\\')">' + label + "</button>";
+  }
+  return '<div class="tabs">' + t("agora", "Agora") + t("historia", "História") +
+    t("expertise", "Expertise") + "</div>";
+}
+function setView(v) { view = v; render(); }
+
 function render() {
   var s = state;
   if (!s || !s.project) return;
@@ -535,7 +615,28 @@ function render() {
     ' <span class="badge acc">' + esc(s.stage) + "</span>" +
     '<span class="badge">runtime: ' + esc(s.runtime) + "</span>" +
     '<span class="badge">autoridade automática ≤ ' + esc(s.autoMaxLevel) + "</span></div>";
+  h += tabsBar();
+  if (view !== "agora") {
+    h += '<div id="viewbox" class="kv">a carregar…</div>';
+    app.innerHTML = h;
+    if (view === "historia") loadStory();
+    if (view === "expertise") loadXp();
+    return;
+  }
+  h += agoraBody(s);
+  var focus = document.activeElement && document.activeElement.id;
+  var vals = {};
+  ["answer", "dnote", "pnote"].forEach(function (id) { if ($(id)) vals[id] = $(id).value; });
+  app.innerHTML = h;
+  Object.keys(vals).forEach(function (id) { if ($(id)) $(id).value = vals[id]; });
+  if (focus && $(focus)) $(focus).focus();
+  if (s.stage === "consult") loadProbe("consult");
+  if (s.stage === "candidate") loadProbe("candidate");
+  if (s.stage === "execute") loadProbe("execute");
+}
 
+function agoraBody(s) {
+  var h = "";
   if (s.lastError) {
     h += '<div class="card"><div class="err">⚠ ' + esc(s.lastError) + "</div></div>";
   }
@@ -546,11 +647,13 @@ function render() {
       ")</summary>" + stateDoc(s.approved.state) + "</details></div>";
   }
   if (s.roster) {
-    h += '<div class="card"><h2>Equipa</h2>';
+    h += '<div class="card"><h2>Agentes temporários desta fase</h2>' +
+      '<div class="kv">Vasos operacionais, não personalidades: cada um é composto no momento — ' +
+      "mandato + contexto do projeto + expertise admitida + orçamento de esforço.</div><div style='margin-top:8px'>";
     s.roster.forEach(function (a) {
       h += '<span class="agent"><b>' + esc(a.title) + "</b><div>" + esc(a.mandate) + "</div></span>";
     });
-    h += "</div>";
+    h += "</div></div>";
   }
   if (s.interview.answered.length) {
     h += '<div class="card"><details><summary>Respostas dadas (' + s.interview.answered.length +
@@ -587,15 +690,132 @@ function render() {
     });
     h += "</details></div>";
   }
-  var focus = document.activeElement && document.activeElement.id;
-  var vals = {};
-  ["answer", "dnote", "pnote"].forEach(function (id) { if ($(id)) vals[id] = $(id).value; });
-  app.innerHTML = h;
-  Object.keys(vals).forEach(function (id) { if ($(id)) $(id).value = vals[id]; });
-  if (focus && $(focus)) $(focus).focus();
-  if (s.stage === "consult") loadProbe("consult");
-  if (s.stage === "candidate") loadProbe("candidate");
-  if (s.stage === "execute") loadProbe("execute");
+  return h;
+}
+
+// ---------------- história (a linha do tempo do projeto) ----------------
+var LBL = {
+  project_init: "Projeto criado",
+  roster_ready: "Agentes temporários convocados",
+  consulted: "Consulta",
+  reconsulted: "Reconsulta (após a minha resposta)",
+  question_answered: "Respondi a uma pergunta",
+  candidate_built: "Estado candidato construído",
+  state_approved: "Aprovei o estado do projeto",
+  state_rejected: "Rejeitei o candidato, com direção",
+  execution_started: "Mandei executar",
+  artifact_returned: "Artefacto entregue",
+  iteration_advanced: "Avancei a iteração",
+  pilot_note: "Nota minha ao Kernel",
+  expertise_added: "Expertise registada (candidata)",
+  expertise_admitted: "Expertise admitida por mim",
+  expertise_discarded: "Expertise descartada por mim"
+};
+
+function tlItem(i) {
+  var h = '<div class="tli' + (i.actor === "pilot" ? " pilot" : "") + '">' +
+    '<div class="when">' + esc(i.ts.slice(11, 19)) + "</div><div>" +
+    '<span class="lbl">' + (LBL[i.action] || esc(i.action)) + "</span>" +
+    '<span class="who">' + (i.actor === "pilot" ? "Tu" : "Kernel") + "</span>";
+  if (i.agentTitle) h += " · " + esc(i.agentTitle);
+  if (i.effortLevel) h += ' <span class="badge">' + esc(i.effortLevel) + " · " + esc(i.model || "") + "</span>";
+  h += "</div>";
+  if (i.mandate) h += '<div class="kv">mandato: ' + esc(i.mandate) + "</div>";
+  if (i.expertise && i.expertise.length) {
+    h += "<div>";
+    i.expertise.forEach(function (x) {
+      h += '<span class="xchip" title="' + esc(x.reason) + '">🧠 ' + esc(x.title) + "</span>";
+    });
+    h += '<span class="kv" style="font-size:11px"> (passa o rato para veres porquê)</span></div>';
+  }
+  if (i.questionText) {
+    h += '<div class="kv">Pergunta' + (i.askedBy ? " (de " + esc(i.askedBy.join(", ")) + ")" : "") +
+      ": <b>" + esc(i.questionText) + "</b></div>";
+    if (i.answer) h += "<div>" + esc(i.answer) + "</div>";
+  }
+  if (i.note) h += '<div class="kv">' + esc(i.note) + "</div>";
+  if (i.output) {
+    h += "<details><summary>output do trabalho (" + (i.outputChars || i.output.length) +
+      " chars — proveniência operacional, nunca raciocínio)</summary><pre>" +
+      esc(i.output) + "</pre></details>";
+  }
+  return h + "</div>";
+}
+
+function loadStory() {
+  fetch("/api/story?project=" + encodeURIComponent(projectId))
+    .then(function (r) { return r.json(); })
+    .then(function (st) {
+      var box = $("viewbox");
+      if (!box || view !== "historia") return;
+      var h = '<div class="card"><h2>O que pedi (a intenção fundadora, verbatim)</h2><div>' +
+        esc(st.intent.description) + '</div><div class="kv" style="margin-top:6px">' +
+        esc(st.intent.createdAt.slice(0, 16).replace("T", " ")) + "</div></div>";
+      st.iterations.forEach(function (it) {
+        h += '<div class="itdiv">Iteração ' + it.iteration + '</div><div class="tl">';
+        it.items.forEach(function (i) { h += tlItem(i); });
+        h += "</div>";
+      });
+      if (!st.iterations.length) h += '<div class="kv">ainda sem eventos — convoca a equipa no separador Agora.</div>';
+      box.innerHTML = h;
+    });
+}
+
+// ---------------- expertise (a biblioteca do ativo durável) ----------------
+function xpCard(e) {
+  var h = '<div class="xp"><b>' + esc(e.title) + '</b><span class="st ' + esc(e.status) + '">' +
+    esc(e.status) + '</span><span class="st">' + (e.reach === "reusable" ? "reutilizável" : "deste projeto") + "</span>";
+  if (e.tags.length) h += ' <span class="kv">âmbito: ' + esc(e.tags.join(", ")) + "</span>";
+  h += "<div style='margin-top:4px'>" + esc(e.body) + "</div>" +
+    '<div class="kv">proveniência: ' + esc(e.provenance.origin) + " — " + esc(e.provenance.note) + "</div>";
+  if (e.appliedIn.length) {
+    h += "<details><summary class='kv'>aplicada em " + e.appliedIn.length +
+      " work orders</summary><div class='kv'>";
+    e.appliedIn.forEach(function (a) {
+      h += a.projectId + " · " + a.workOrderId + " · " + a.ts.slice(0, 16).replace("T", " ") + "<br>";
+    });
+    h += "</div></details>";
+  } else {
+    h += '<div class="kv">ainda não aplicada</div>';
+  }
+  if (e.status === "candidate") {
+    h += '<div class="row" style="margin-top:8px">' +
+      '<button onclick="decideXp(\\'' + esc(e.id) + '\\',\\'admit\\')">Admitir</button>' +
+      '<button class="danger" onclick="decideXp(\\'' + esc(e.id) + '\\',\\'discard\\')">Descartar</button></div>';
+  }
+  return h + "</div>";
+}
+
+function loadXp() {
+  fetch("/api/expertise?project=" + encodeURIComponent(projectId))
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      var box = $("viewbox");
+      if (!box || view !== "expertise") return;
+      var h = '<div class="card"><h2>Registar expertise (o teu julgamento, nas tuas palavras)</h2>' +
+        '<div class="kv">Candidata até TU a admitires. Depois de admitida, o Kernel agenda-a para ' +
+        "todos os agentes cujo âmbito coincida — e cada aplicação fica registada.</div>" +
+        '<label>Título</label><input id="xt">' +
+        '<label>O julgamento</label><textarea id="xb" placeholder="ex.: Nos brindes, a última frase nunca repete o nome dos noivos — já foi dito vinte vezes nessa noite."></textarea>' +
+        '<div class="row"><div class="grow"><label>Âmbito (tags, vírgulas; vazio = projeto inteiro)</label><input id="xg"></div>' +
+        '<div><label>Alcance</label><select id="xr"><option value="project">este projeto</option>' +
+        '<option value="reusable">reutilizável</option></select></div></div>' +
+        '<div style="margin-top:12px"><button onclick="addXp()">Registar candidata</button></div></div>';
+      h += '<div class="card"><h2>Deste projeto</h2>' +
+        (d.project.length ? d.project.map(xpCard).join("") : '<div class="kv">vazia — a biblioteca cresce com o teu julgamento, não com transcrições.</div>') + "</div>";
+      h += '<div class="card"><h2>Reutilizável (todos os projetos)</h2>' +
+        (d.shared.length ? d.shared.map(xpCard).join("") : '<div class="kv">vazia</div>') + "</div>";
+      box.innerHTML = h;
+    });
+}
+function addXp() {
+  post("/api/expertise", { project: projectId, title: $("xt").value, body: $("xb").value,
+    tags: $("xg").value, reach: $("xr").value })
+    .then(loadXp).catch(function (e) { alert(e.message); });
+}
+function decideXp(id, d) {
+  post("/api/expertise/decide", { project: projectId, expertiseId: id, decision: d })
+    .then(loadXp).catch(function (e) { alert(e.message); });
 }
 
 function op(name) {
