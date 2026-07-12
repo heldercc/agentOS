@@ -4,14 +4,16 @@
 Build AgentOS — an operating system for reusable human expertise.
 
 ## Current Heading
-The PRODUCT phase is open (docs/PRODUCT-LOOP.md, doctrine; ADR-0018,
-implementation). The experiment rigs are FROZEN evidence infrastructure;
-the product shell lives in product/ (localhost:4900) and runs the whole
-13-step loop — smoke 33/33, browser-verified on the fake runtime, and now
-proven on a REAL model: the cli runtime carried a first real project
-end-to-end (haiku, 14 work orders, a complete usable artifact — diary
-addendum 8, three product findings). Next: the Songoku Beta lived INSIDE
-the product.
+The PRODUCT phase is open, and its foundation is corrected
+(docs/FOUNDATION-CORRECTION.md, the Pilot's voice): AgentOS is a governed
+system for capturing, organising, selecting, applying and evaluating HUMAN
+intelligence — models are interchangeable engines, agents are temporary
+vessels, expertise is the durable asset. The shell (product/,
+localhost:4900; ADR-0018 loop + ADR-0019 expertise/story) runs the 13-step
+loop proven on a REAL model (diary addenda 8–9), with a workspace UI —
+Agora / História / Expertise — that exposes operational provenance: every
+contribution shows its mandate, the expertise it received and why. Next:
+the Songoku Beta lived INSIDE the product; the rigs stay frozen.
 
 ## Current State
 Copilot transition complete (founding Copilot → current Copilot); founding
