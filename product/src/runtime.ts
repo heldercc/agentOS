@@ -25,6 +25,20 @@ export interface GenerateArgs {
   jobId: string;
   /** Lets the fake port answer in the shape each step of the loop expects. */
   kind: WorkOrderKind;
+  /** Cancels the call (parecer 2026-07-12, ponto E — the Pilot's "Parar esta
+   *  operação"). Implementations kill only their own child/wait, never more. */
+  signal?: AbortSignal;
+  /** Heartbeat: called whenever there is REAL evidence of life (stdout/stderr
+   *  chunks, poll ticks). Never faked on a timer alone. */
+  onActivity?: () => void;
+}
+
+/** Thrown when a Pilot-initiated cancellation interrupts a runtime call. */
+export class OpCancelledError extends Error {
+  override readonly name = "OpCancelledError";
+  constructor(jobId: string) {
+    super(`operação cancelada pelo Piloto (job ${jobId})`);
+  }
 }
 
 /** ~4 chars/token — the estimate used when no API metering is available. */
@@ -57,6 +71,24 @@ export class FakeRuntime implements Runtime {
   readonly name = "fake";
 
   async generate(args: GenerateArgs): Promise<ModelResult> {
+    // PRODUCT_FAKE_DELAY_MS: the deliberately-slow fake used for browser
+    // verification of live execution observability (parecer 2026-07-12,
+    // ponto H) — waits in ~200ms slices so cancellation and heartbeats are
+    // both exercisable without a real runtime.
+    const delayMs = Math.max(0, Number(process.env["PRODUCT_FAKE_DELAY_MS"] ?? 0) | 0);
+    if (delayMs > 0) {
+      const sliceMs = 200;
+      let waited = 0;
+      while (waited < delayMs) {
+        if (args.signal?.aborted) throw new OpCancelledError(args.jobId);
+        const slice = Math.min(sliceMs, delayMs - waited);
+        await new Promise((r) => setTimeout(r, slice));
+        waited += slice;
+        args.onActivity?.();
+        if (args.signal?.aborted) throw new OpCancelledError(args.jobId);
+      }
+    }
+    if (args.signal?.aborted) throw new OpCancelledError(args.jobId);
     const text = this.#answer(args);
     return { text, usage: estimatedUsage(args, text) };
   }
@@ -205,6 +237,9 @@ export class CliRuntime implements Runtime {
   readonly name = "cli";
 
   async generate(args: GenerateArgs): Promise<ModelResult> {
+    if (args.signal?.aborted) {
+      return Promise.reject(new OpCancelledError(args.jobId));
+    }
     const prompt = `${args.system}\n\n${args.prompt}\n`;
     const cmd =
       process.env["PRODUCT_WORKER_CMD"] ?? `claude -p --model ${args.model}`;
@@ -214,7 +249,11 @@ export class CliRuntime implements Runtime {
       });
       let out = "";
       let err = "";
+      // Cancellation kills only THIS child; a generic exit(code!=0) rejection
+      // must never also fire once cancelled (settled guards the race).
+      let settled = false;
       const timer = setTimeout(() => {
+        settled = true;
         child.kill();
         reject(
           new Error(
@@ -222,14 +261,36 @@ export class CliRuntime implements Runtime {
           ),
         );
       }, args.timeoutMs);
-      child.stdout.on("data", (d: Buffer) => (out += d.toString("utf8")));
-      child.stderr.on("data", (d: Buffer) => (err += d.toString("utf8")));
+      const onAbort = (): void => {
+        settled = true;
+        clearTimeout(timer);
+        child.kill();
+        reject(new OpCancelledError(args.jobId));
+      };
+      args.signal?.addEventListener("abort", onAbort);
+      const detach = (): void => {
+        args.signal?.removeEventListener("abort", onAbort);
+      };
+      child.stdout.on("data", (d: Buffer) => {
+        out += d.toString("utf8");
+        args.onActivity?.();
+      });
+      child.stderr.on("data", (d: Buffer) => {
+        err += d.toString("utf8");
+        args.onActivity?.();
+      });
       child.on("error", (e) => {
         clearTimeout(timer);
+        detach();
+        if (settled) return;
+        settled = true;
         reject(new Error(`cli runtime spawn failed: ${e.message}`));
       });
       child.on("close", (code) => {
         clearTimeout(timer);
+        detach();
+        if (settled) return;
+        settled = true;
         if (code === 0 && out.trim().length > 0) {
           resolvePromise({ text: out, usage: estimatedUsage(args, out) });
         } else {
@@ -291,6 +352,7 @@ export class MailboxRuntime implements Runtime {
 
     const deadline = Date.now() + args.timeoutMs;
     while (!existsSync(inPath)) {
+      if (args.signal?.aborted) throw new OpCancelledError(args.jobId);
       if (Date.now() > deadline) {
         throw new Error(
           `mailbox runtime timed out after ${args.timeoutMs}ms waiting for ` +
@@ -298,6 +360,7 @@ export class MailboxRuntime implements Runtime {
         );
       }
       await new Promise((r) => setTimeout(r, this.#pollMs));
+      args.onActivity?.();
     }
     const text = readFileSync(inPath, "utf8");
     rmSync(outPath, { force: true });

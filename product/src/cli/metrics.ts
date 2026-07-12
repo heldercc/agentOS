@@ -179,6 +179,58 @@ function countApplications(projectId: string): number {
   return n;
 }
 
+// ---------------------------------------------------------------------------
+// TEST-CONDITION DISCLOSURE (parecer 2026-07-12, Bloco 1) — the runtime port
+// (fake/cli/mailbox) cannot be known retroactively per work order, so this
+// discloses what the RECORDS prove instead: which model + effort level each
+// work order kind actually ran at, how many token records are exact vs
+// estimated, and how many operations were cancelled or timed out. No report
+// leaves without this block.
+function testConditionDisclosure(ids: string[]): {
+  byKind: Record<string, Record<string, number>>;
+  tokenRecords: { exact: number; estimated: number };
+  operationCancelled: number;
+  timedOutWorkOrders: number;
+  note: string;
+} {
+  const byKind: Record<string, Record<string, number>> = {};
+  let exact = 0;
+  let estimated = 0;
+  let operationCancelled = 0;
+  let timedOutWorkOrders = 0;
+  for (const projectId of ids) {
+    const project = getProject(projectId);
+    for (let it = 1; it <= project.iteration; it++) {
+      for (const w of readWorkOrders(projectId, it)) {
+        const key = `${w.model}/${w.effortLevel}`;
+        const kindCounts = byKind[w.kind] ?? {};
+        kindCounts[key] = (kindCounts[key] ?? 0) + 1;
+        byKind[w.kind] = kindCounts;
+        if (w.status === "error" && (w.error ?? "").toLowerCase().includes("timed out")) {
+          timedOutWorkOrders += 1;
+        }
+        const meterPath = abs(workOrdersDir(projectId, it), w.id, "meter.json");
+        if (!existsSync(meterPath)) continue;
+        const m = readJson<MeterRecord>(meterPath);
+        if (m.estimated) estimated += 1;
+        else exact += 1;
+      }
+    }
+    operationCancelled += readEvents(projectId).filter(
+      (e) => e.action === "operation_cancelled",
+    ).length;
+  }
+  return {
+    byKind,
+    tokenRecords: { exact, estimated },
+    operationCancelled,
+    timedOutWorkOrders,
+    note:
+      "Não generalizar sem separar: falha de produto · limitação do modelo · " +
+      "interação modelo×mecanismo · causa desconhecida (A/B).",
+  };
+}
+
 const arg = process.argv[2];
 const ids = arg
   ? [arg]
@@ -187,6 +239,7 @@ const ids = arg
       .filter((id) => !id.startsWith("smoke-"));
 
 const report = {
+  testConditionDisclosure: testConditionDisclosure(ids),
   generatedFrom: "disk — evidence.jsonl, meters, manifests, surfaces (read-only)",
   senseiRanking: listSenseis()
     .map((s) => ({ id: s.id, title: s.title, victories: senseiVictories(s.id).length }))

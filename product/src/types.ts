@@ -299,7 +299,10 @@ export interface EvidenceEvent {
     | "effort_profile_set"
     | "decision_opened"
     | "option_refined"
-    | "option_selected";
+    | "option_selected"
+    /** The Pilot halted an in-flight operation (parecer 2026-07-12,
+     *  LIVE EXECUTION OBSERVABILITY, ponto E) — actor is always the Pilot. */
+    | "operation_cancelled";
   workOrderId?: string;
   agentId?: string;
   questionId?: string;

@@ -1,0 +1,16 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "product-shell-verify",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["tsx", "product/src/cli/shell.ts"],
+      "port": 4901,
+      "env": {
+        "PRODUCT_PORT": "4901",
+        "PRODUCT_RUNTIME": "fake",
+        "PRODUCT_FAKE_DELAY_MS": "6000"
+      }
+    }
+  ]
+}

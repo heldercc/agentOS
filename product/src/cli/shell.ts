@@ -6,9 +6,10 @@
 // action per loop stage; everything below the authority line moves by itself.
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { execSync } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 
-import { readEvents } from "../evidence.js";
+import { appendEvent, readEvents } from "../evidence.js";
 import {
   AUTO_MAX_LEVEL,
   EFFORT_LEVELS,
@@ -63,8 +64,15 @@ import {
   senseiSanity,
   senseiVictories,
 } from "../hi.js";
-import { iterationDir, MAILBOX_DIR, projectDir, workOrdersDir, WORKSPACE_DIR } from "../paths.js";
-import { resolveRuntime } from "../runtime.js";
+import {
+  iterationDir,
+  MAILBOX_DIR,
+  projectDir,
+  REPO_ROOT,
+  workOrdersDir,
+  WORKSPACE_DIR,
+} from "../paths.js";
+import { OpCancelledError, resolveRuntime, type GenerateArgs, type Runtime } from "../runtime.js";
 import { abs, readJson, readText, writeJson } from "../stores.js";
 import type { EffortProfile, MeterRecord } from "../types.js";
 
@@ -72,6 +80,46 @@ import type { EffortProfile, MeterRecord } from "../types.js";
 const PORT = Number(process.env["PRODUCT_PORT"] ?? 4900);
 const RUNTIME_NAME = process.env["PRODUCT_RUNTIME"] ?? "cli";
 const runtime = resolveRuntime(RUNTIME_NAME, { mailboxDir: MAILBOX_DIR });
+
+// ---------------------------------------------------------------------------
+// Ponto A (parecer 2026-07-12, LIVE EXECUTION OBSERVABILITY): the running
+// version must be visible. Captured once at boot — never let the Pilot
+// believe a committed feature is active when the process has not restarted.
+function gitShortHead(cwd: string): string | null {
+  try {
+    return execSync("git rev-parse --short HEAD", { cwd, stdio: ["ignore", "pipe", "ignore"] })
+      .toString("utf8")
+      .trim();
+  } catch {
+    return null;
+  }
+}
+
+const BUILD = {
+  sha: gitShortHead(REPO_ROOT) ?? "unknown",
+  startedAt: new Date().toISOString(),
+  port: PORT,
+  runtime: RUNTIME_NAME,
+  node: process.version,
+};
+
+// repoHeadNow(): the CURRENT repo HEAD, re-checked at most every 30s — cheap
+// enough to call on every state poll without shelling out constantly.
+let repoHeadCache: { at: number; sha: string | null } | null = null;
+function repoHeadNow(): string | null {
+  const now = Date.now();
+  if (repoHeadCache && now - repoHeadCache.at < 30_000) return repoHeadCache.sha;
+  const sha = gitShortHead(REPO_ROOT);
+  repoHeadCache = { at: now, sha };
+  return sha;
+}
+
+function buildInfo(): { sha: string; startedAt: string; port: number; runtime: string; node: string;
+  repoHead: string | null; stale: boolean } {
+  const repoHead = repoHeadNow();
+  const stale = repoHead !== null && BUILD.sha !== "unknown" && repoHead !== BUILD.sha;
+  return { ...BUILD, repoHead, stale };
+}
 
 // One-time, mechanical, provenance-preserving (ADR-0020 §9).
 try {
@@ -102,25 +150,128 @@ try {
 
 // ---------------------------------------------------------------------------
 // One in-flight operation per project — honest for a Beta: the loop is
-// sequential by design; parallel governance is nobody's ask yet.
+// sequential by design; parallel governance is nobody's ask yet. Busy is
+// also the live operation card's data (parecer 2026-07-12, ponto B): the
+// shell drives it by wrapping the runtime, never by inventing a percentage.
 
 interface Busy {
   op: string;
   startedAt: string;
+  /** "queued"|"launching"|"awaiting-model"|"processing" — honest stage labels. */
+  phase: string;
+  phaseSince: string;
+  /** Last REAL evidence of life (stdout/stderr chunk, poll tick). */
+  heartbeatAt: string;
+  workOrderId: string | null;
+  model: string | null;
+  effortLevel: string;
+  callsDone: number;
+  callsPlanned: number;
+  timeoutMs: number | null;
 }
 const busy = new Map<string, Busy>();
+/** Never serialized — the Pilot's "Parar esta operação" reaches in here only. */
+const aborters = new Map<string, AbortController>();
 const lastError = new Map<string, string>();
 
-function startOp(projectId: string, op: string, work: () => Promise<void>): boolean {
+/**
+ * Wraps the module-level runtime so every call drives the Busy record: phase
+ * transitions and heartbeat come from REAL runtime activity (ponto D — no
+ * invented percentage). If the project has no Busy record (called outside
+ * startOp's bookkeeping), it simply delegates.
+ */
+function instrument(projectId: string): Runtime {
+  return {
+    name: runtime.name,
+    async generate(args: GenerateArgs) {
+      const b = busy.get(projectId);
+      if (!b) return runtime.generate(args);
+      const now = (): string => new Date().toISOString();
+      b.workOrderId = args.jobId;
+      b.model = args.model;
+      b.timeoutMs = args.timeoutMs;
+      b.phase = "launching";
+      b.phaseSince = now();
+      b.heartbeatAt = now();
+      b.phase = "awaiting-model";
+      b.phaseSince = now();
+      const ac = aborters.get(projectId);
+      const res = await runtime.generate({
+        ...args,
+        ...(ac ? { signal: ac.signal } : {}),
+        onActivity: () => {
+          b.heartbeatAt = now();
+        },
+      });
+      // The kernel now parses/persists between calls — honest, not invented.
+      b.callsDone += 1;
+      b.phase = "processing";
+      b.heartbeatAt = now();
+      return res;
+    },
+  };
+}
+
+function startOp(
+  projectId: string,
+  op: string,
+  level: EffortLevel,
+  planned: number,
+  work: () => Promise<void>,
+): boolean {
   if (busy.has(projectId)) return false;
-  busy.set(projectId, { op, startedAt: new Date().toISOString() });
+  const now = new Date().toISOString();
+  busy.set(projectId, {
+    op,
+    startedAt: now,
+    phase: "queued",
+    phaseSince: now,
+    heartbeatAt: now,
+    workOrderId: null,
+    model: null,
+    effortLevel: level,
+    callsDone: 0,
+    callsPlanned: planned,
+    timeoutMs: null,
+  });
+  aborters.set(projectId, new AbortController());
   lastError.delete(projectId);
   void work()
     .catch((e) => {
-      lastError.set(projectId, e instanceof Error ? e.message : String(e));
+      // DEVIATION (kernel.ts is off-limits): runWorkOrder wraps every runtime
+      // failure — cancellation included — into a plain `Error` ("work order
+      // X failed: <lastError message>"), so `instanceof OpCancelledError`
+      // alone does not survive that wrap. The message substring is the only
+      // signal left; OpCancelledError's own wording is distinctive enough
+      // (verified live: browser-driven cancel through a real Work Order).
+      const msg = e instanceof Error ? e.message : String(e);
+      const cancelled =
+        e instanceof OpCancelledError ||
+        (e as { name?: string } | null)?.name === "OpCancelledError" ||
+        msg.includes("operação cancelada pelo Piloto");
+      if (cancelled) {
+        const project = getProject(projectId);
+        appendEvent({
+          ts: new Date().toISOString(),
+          projectId,
+          iteration: project.iteration,
+          actor: "pilot",
+          action: "operation_cancelled",
+          note: op,
+          scripted: false,
+        });
+        lastError.set(
+          projectId,
+          "⏹ Operação parada por ti — o que já estava completo ficou preservado. " +
+            "Podes relançar quando quiseres (igual ou com outro esforço).",
+        );
+      } else {
+        lastError.set(projectId, msg);
+      }
     })
     .finally(() => {
       busy.delete(projectId);
+      aborters.delete(projectId);
     });
   return true;
 }
@@ -204,6 +355,9 @@ function stateView(projectId: string): unknown {
     project,
     stage,
     runtime: RUNTIME_NAME,
+    /** Ponto A: the running version must be visible — never let the Pilot
+     *  believe a committed feature is active when the process is stale. */
+    build: buildInfo(),
     autoMaxLevel: AUTO_MAX_LEVEL,
     effortProfile: project.effortProfile ?? DEFAULT_EFFORT_PROFILE,
     /** Ponto I: the iteration's real spend, visible and growing. */
@@ -308,7 +462,7 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
         lastActivityAt: last ? last.ts : p.createdAt,
       };
     });
-    json(res, 200, { projects, runtime: RUNTIME_NAME });
+    json(res, 200, { projects, runtime: RUNTIME_NAME, build: buildInfo() });
     return;
   }
   if (req.method === "POST" && url.pathname === "/api/project/conclude") {
@@ -466,13 +620,14 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
       json(res, 400, { error: "o refinamento precisa da tua instrução" });
       return;
     }
-    const ok = startOp(projectId, "refine", async () => {
+    const refineLevel = getProject(projectId).effortProfile?.questions ?? "low";
+    const ok = startOp(projectId, "refine", refineLevel, 1, async () => {
       await refineOption({
         projectId,
         dsId: b["dsId"] ?? "",
         optionId: b["optionId"] ?? "",
         instruction: b["instruction"] ?? "",
-        runtime,
+        runtime: instrument(projectId),
       });
     });
     if (!ok) {
@@ -514,15 +669,16 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const project = getProject(projectId);
     const optionsCount = b["options"] ? Number(b["options"]) : undefined;
     const work = async (): Promise<void> => {
+      const rt = instrument(projectId);
       if (op === "consult") {
-        await runConsult({ projectId, level, runtime });
+        await runConsult({ projectId, level, runtime: rt });
       } else if (op === "candidate") {
-        await runCandidate({ projectId, level, runtime });
+        await runCandidate({ projectId, level, runtime: rt });
       } else if (op === "decision") {
         await runDecisionSurface({
           projectId,
           level,
-          runtime,
+          runtime: rt,
           ...(optionsCount ? { optionsCount } : {}),
         });
       } else if (op === "execute") {
@@ -532,7 +688,7 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
           plannedCalls: plannedCalls(projectId, "execute", level),
           priorIterations: project.iteration - 1,
         });
-        const r = await runExecute({ projectId, level, runtime });
+        const r = await runExecute({ projectId, level, runtime: rt });
         writeJson(
           abs(iterationDir(projectId, project.iteration), "effort-actual.json"),
           buildActual({
@@ -547,7 +703,7 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
         throw new Error(`operação desconhecida: ${op}`);
       }
     };
-    if (!startOp(projectId, op, work)) {
+    if (!startOp(projectId, op, level, plannedCalls(projectId, op, level, optionsCount), work)) {
       json(res, 409, { error: "já existe uma operação em curso neste projeto" });
       return;
     }
@@ -562,19 +718,39 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
       json(res, 400, { error: "a resposta não pode ser vazia" });
       return;
     }
-    const ok = startOp(projectId, "answer", async () => {
-      await answerQuestion({
-        projectId,
-        questionId: b["questionId"] ?? "",
-        answer: b["answer"] ?? "",
-        runtime,
-      });
-    });
+    const answerLevel = getProject(projectId).effortProfile?.questions ?? "low";
+    const ok = startOp(
+      projectId,
+      "answer",
+      answerLevel,
+      plannedCalls(projectId, "consult", answerLevel),
+      async () => {
+        await answerQuestion({
+          projectId,
+          questionId: b["questionId"] ?? "",
+          answer: b["answer"] ?? "",
+          runtime: instrument(projectId),
+        });
+      },
+    );
     if (!ok) {
       json(res, 409, { error: "já existe uma operação em curso neste projeto" });
       return;
     }
     json(res, 200, { started: "answer" });
+    return;
+  }
+  if (req.method === "POST" && url.pathname === "/api/op/stop") {
+    // Ponto E: stopping must ALWAYS be allowed, even on a concluded/reopening
+    // edge — a governed halt is never itself blocked by guardActive.
+    const b = await body(req);
+    const projectId = b["project"] ?? "";
+    if (!busy.has(projectId)) {
+      json(res, 409, { error: "não há operação em curso" });
+      return;
+    }
+    aborters.get(projectId)?.abort();
+    json(res, 200, { stopping: true });
     return;
   }
   if (req.method === "POST" && url.pathname === "/api/decide") {
@@ -735,6 +911,17 @@ var levelChosen = null;
 var lastJson = "";
 var view = "agora";
 
+// Ponto F — polling failure must never be silent: a fixed banner outside
+// #app so a render() rebuild can never eat it, ticking every second while
+// the connection to the App is down.
+var connbar = document.createElement("div");
+connbar.id = "connbar";
+connbar.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:9;padding:6px 16px;" +
+  "background:#3a2f14;color:#e0a63f;font-size:13px;display:none";
+document.body.appendChild(connbar);
+var pollFailing = false;
+var lastPollOkAt = Date.now();
+
 function esc(s) {
   return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
     return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
@@ -806,7 +993,10 @@ function relTime(ts) {
 function renderHome() {
   fetch("/api/projects").then(function (r) { return r.json(); }).then(function (data) {
     var h = '<h1>AgentOS</h1><div class="sub">Declara a intenção. O sistema digere. ' +
-      'Tu governas. <span class="badge">runtime: ' + esc(data.runtime) + '</span></div>';
+      'Tu governas. <span class="badge">runtime: ' + esc(data.runtime) + '</span>' +
+      (data.build ? '<span class="badge">build ' + esc(data.build.sha) + '</span>' : "") +
+      '</div>';
+    h += staleCard(data.build);
     function homeLevelSelect(id) {
       var h2 = '<select id="' + id + '">';
       ["minimal", "low", "balanced", "high", "maximum"].forEach(function (l) {
@@ -863,6 +1053,11 @@ function load() {
   fetch("/api/state?project=" + encodeURIComponent(projectId))
     .then(function (r) { return r.json(); })
     .then(function (s) {
+      // Ponto F — a poll that returns IS the App answering; the banner only
+      // reflects a poll that fails, never one that simply found no change.
+      pollFailing = false;
+      lastPollOkAt = Date.now();
+      connbar.style.display = "none";
       // Re-render only on real change — a quiet poll must not eat a click.
       var j = JSON.stringify(s);
       if (j === lastJson) return;
@@ -874,7 +1069,7 @@ function load() {
       else if (view === "historia") loadStory();
       else loadHi();
     })
-    .catch(function () { /* poll again */ });
+    .catch(function () { pollFailing = true; /* setInterval retries — the banner tells the Pilot */ });
 }
 
 // Ponto D — cada operação pertence a uma fase; o perfil do projeto dá o
@@ -938,9 +1133,39 @@ function metersLine(s) {
     (s.meters.estimated ? " (estimados)" : "") + " em <b>" + s.meters.workOrders +
     "</b> work orders · <b>" + Math.round(s.meters.durationMs / 1000) + "s</b> de modelo</div>";
 }
+// Ponto D/G — the honest heartbeat gap, shared between the initial render and
+// the 1s ticking interval so the two never disagree.
+function heartbeatText(b) {
+  var gapS = Math.max(0, Math.round((Date.now() - new Date(b.heartbeatAt).getTime()) / 1000));
+  var txt = "há " + gapS + "s";
+  var amber = gapS > 30;
+  if (b.timeoutMs && gapS * 1000 > b.timeoutMs) {
+    txt += " — pode ter excedido o tempo — deve falhar em breve";
+  } else if (amber) {
+    txt += " — sem sinal recente";
+  }
+  return { text: txt, amber: amber };
+}
+// One tick drives THREE independent, honest displays — none of them re-render
+// the page (lastJson dedupes polls; a full render would eat in-flight text):
+// the elapsed timer, the heartbeat gap, and the polling-failure banner.
 setInterval(function () {
   var el = $("elapsed");
   if (el && state && state.busy) el.textContent = elapsedSince(state.busy.startedAt);
+  var hb = $("hb");
+  if (hb && state && state.busy) {
+    var ht = heartbeatText(state.busy);
+    hb.textContent = ht.text;
+    hb.style.color = ht.amber ? "var(--warn)" : "";
+  }
+  if (pollFailing) {
+    var downS = Math.round((Date.now() - lastPollOkAt) / 1000);
+    if (downS > 6) {
+      connbar.style.display = "block";
+      connbar.textContent = "Ligação à App interrompida — última atualização há " + downS +
+        "s. A tentar novamente…";
+    }
+  }
 }, 1000);
 
 // O cartão dominante: UMA área que diz o que precisa do utilizador agora.
@@ -961,6 +1186,40 @@ function primary(kind, title, inner) {
     kind === "closed" ? "PROJETO CONCLUÍDO" : "O QUE PRECISA DE TI AGORA";
   return '<div class="card primary' + cls + '"><div class="kicker">' + kick + "</div>" +
     "<h2>" + title + "</h2>" + inner + "</div>";
+}
+
+// Ponto B/D — explicit states, honestly labeled; a stage label and elapsed
+// time are more honest than an invented percentage.
+var PHASE_PT = {
+  "queued": "na fila",
+  "launching": "a lançar o Claude Code",
+  "awaiting-model": "a aguardar resposta do modelo",
+  "processing": "a processar a resposta"
+};
+function liveOpBody(s) {
+  var b = s.busy;
+  var woLine;
+  if (b.callsPlanned > 0 && b.callsDone >= b.callsPlanned) {
+    woLine = b.callsDone + " de " + b.callsPlanned + " concluídas";
+  } else {
+    woLine = "Work order " + (b.callsDone + 1) + " de " + b.callsPlanned;
+  }
+  if (b.workOrderId) woLine += ' · <span style="color:var(--dim)">' + esc(b.workOrderId) + "</span>";
+  if (b.model) woLine += " · modelo " + esc(b.model) + " · esforço " + esc(b.effortLevel);
+  var ht = heartbeatText(b);
+  var h = '<div class="spin">⏳ ' + esc(PHASE_PT[b.phase] || b.phase) + "</div>" +
+    '<div class="kv" style="margin-top:6px">' + woLine + "</div>" +
+    '<div class="kv" style="margin-top:6px">Tempo decorrido: <b id="elapsed">' +
+    elapsedSince(b.startedAt) + '</b> · Última atividade: <span id="hb" style="' +
+    (ht.amber ? "color:var(--warn)" : "") + '">' + ht.text + "</span></div>" +
+    metersLine(s) +
+    '<div class="kv" style="margin-top:6px">Os tokens desta chamada aparecem quando ela terminar.</div>';
+  if (b.timeoutMs) {
+    h += '<div class="kv" style="margin-top:2px">timeout desta chamada: ' +
+      Math.round(b.timeoutMs / 60000) + "m</div>";
+  }
+  h += '<div style="margin-top:12px"><button class="danger" onclick="stopOp()">Parar esta operação</button></div>';
+  return h;
 }
 
 function concludeBlock(s) {
@@ -990,13 +1249,12 @@ function primaryCard() {
       '<div style="margin-top:12px"><button class="ghost" onclick="reopen()">Reabrir projeto</button></div>');
   }
   if (s.busy) {
-    // Ponto I: pensar custa e isso deve ser EVIDENTE — cronómetro a andar e
-    // os tokens reais da passagem a crescer a cada work order concluída.
-    return primary("wait", "Não precisas de fazer nada",
-      '<div class="spin">⏳ ' + esc(BUSY_HUMAN[s.busy.op] || s.busy.op) +
-      ' — há <b id="elapsed">' + elapsedSince(s.busy.startedAt) + "</b></div>" +
-      metersLine(s) +
-      '<div class="kv" style="margin-top:6px">O sistema move por baixo; tu decides quando ele voltar.</div>');
+    // Ponto B/D: the live operation card — every field derives from REAL
+    // runtime activity (the shell's instrument() wrapper), never an invented
+    // percentage. Ticking (#elapsed, #hb) comes from the 1s interval, never
+    // from a re-render, so an in-flight click or keystroke is never eaten.
+    return primary("wait", esc(BUSY_HUMAN[s.busy.op] || s.busy.op),
+      liveOpBody(s));
   }
   if (s.stage === "consult") {
     h = primary("act", s.roster ? "Voltar a pôr a equipa a compreender" : "Pôr a equipa a compreender a tua intenção",
@@ -1155,12 +1413,33 @@ function tabsBar() {
 }
 function setView(v) { view = v; render(); }
 
+// Ponto A — the running version must be visible in Details/Audit AND right
+// under the header: never let the Pilot believe a committed feature is
+// active when this process has not been restarted onto it.
+function buildLine(build) {
+  if (!build) return "";
+  var started = new Date(build.startedAt).toTimeString().slice(0, 5);
+  return '<div class="kv" style="margin:-12px 0 16px">build <b>' + esc(build.sha) +
+    "</b> · processo desde " + started + "</div>";
+}
+function staleCard(build) {
+  if (!build || !build.stale) return "";
+  var started = new Date(build.startedAt).toTimeString().slice(0, 5);
+  return '<div class="card" style="border-left:4px solid var(--warn)"><div class="kv" ' +
+    'style="color:var(--warn)">⚠ Há código mais recente no repositório (HEAD ' +
+    esc(build.repoHead) + '). Esta App continua a executar a versão ' + esc(build.sha) +
+    " iniciada às " + started + ". Reiniciar é um ato operacional explícito — " +
+    "pede ao operador.</div></div>";
+}
+
 function render() {
   var s = state;
   if (!s || !s.project) return;
   var h = '<h1><a href="/">AgentOS</a> · ' + esc(s.project.name) + "</h1>" +
     '<div class="sub">passagem ' + s.project.iteration + " pelo ciclo" +
-    (isConcluded(s.project) ? ' <span class="badge ok">concluído</span>' : "") + "</div>";
+    (isConcluded(s.project) ? ' <span class="badge ok">concluído</span>' : "") + "</div>" +
+    buildLine(s.build);
+  h += staleCard(s.build);
   h += journeyBar(s);
   h += tabsBar();
   if (view === "historia" || view === "hi") {
@@ -1171,13 +1450,21 @@ function render() {
     return;
   }
   h += view === "audit" ? auditBody(s) : agoraBody(s);
+  // Ponto F — never lose user text: EVERY input/textarea/select with an id
+  // is snapshotted before the rebuild, not just a hardcoded few — a poll
+  // landing mid-keystroke must never eat what the Pilot was typing.
   var focus = document.activeElement && document.activeElement.id;
   var vals = {};
-  ["answer", "dnote", "pnote", "improveDir", "cnote"].forEach(function (id) {
-    if ($(id)) vals[id] = $(id).value;
+  app.querySelectorAll("input, textarea, select").forEach(function (el) {
+    if (!el.id) return;
+    vals[el.id] = el.type === "checkbox" ? el.checked : el.value;
   });
   app.innerHTML = h;
-  Object.keys(vals).forEach(function (id) { if ($(id)) $(id).value = vals[id]; });
+  Object.keys(vals).forEach(function (id) {
+    var el = $(id);
+    if (!el) return;
+    if (el.type === "checkbox") el.checked = vals[id]; else el.value = vals[id];
+  });
   if (focus && $(focus)) $(focus).focus();
   if (view === "agora" && !isConcluded(s.project)) {
     if (s.stage === "consult") loadProbe("consult");
@@ -1267,6 +1554,7 @@ function levelSelect(id, current) {
 // tudo inspecionável, nada disto é linguagem principal.
 function auditBody(s) {
   var ep = s.effortProfile || {};
+  var bl = s.build || {};
   var h = '<div class="card"><h2>Sistema</h2><div class="kv">' +
     "runtime <b>" + esc(s.runtime) + "</b> · etapa interna <b>" + esc(s.stage) + "</b>" +
     " · autoridade automática ≤ <b>" + esc(s.autoMaxLevel) + "</b>" +
@@ -1274,6 +1562,14 @@ function auditBody(s) {
     " · iteração <b>" + s.project.iteration + "</b>" +
     " · estado <b>" + esc(s.project.status || "active") + "</b>" +
     (s.busy ? ' · em curso: <b>' + esc(s.busy.op) + "</b> desde " + esc(s.busy.startedAt.slice(11, 19)) : "") +
+    "</div>" +
+    '<div class="kv" style="margin-top:6px">' +
+    "build <b>" + esc(bl.sha) + "</b> · HEAD do repo <b>" + esc(bl.repoHead || "?") + "</b> (" +
+    (bl.stale ? "stale" : "atual") + ")" +
+    " · processo desde " + esc(bl.startedAt ? new Date(bl.startedAt).toTimeString().slice(0, 5) : "?") +
+    " · porta <b>" + esc(bl.port) + "</b> · node <b>" + esc(bl.node) + "</b>" +
+    (s.busy ? " · fase <b>" + esc(s.busy.phase) + "</b> · WO <b>" + esc(s.busy.workOrderId || "?") +
+      "</b> · heartbeat " + esc(s.busy.heartbeatAt ? s.busy.heartbeatAt.slice(11, 19) : "?") : "") +
     "</div>" + metersLine(s) + "</div>";
   if (s.roster) {
     h += '<div class="card"><h2>Agentes temporários</h2>' +
@@ -1337,7 +1633,8 @@ var LBL = {
   effort_profile_set: "Defini o perfil de esforço por fase",
   decision_opened: "Superfície de decisão aberta",
   option_refined: "Refinei uma opção",
-  option_selected: "Selecionei uma opção"
+  option_selected: "Selecionei uma opção",
+  operation_cancelled: "Parei a operação em curso — nada do que estava completo se perdeu"
 };
 
 function tlItem(i) {
@@ -1586,6 +1883,11 @@ function op(name) {
   post("/api/op", payload)
     .then(function () { levelChosen = null; load(); })
     .catch(function (e) { alert(e.message); });
+}
+// Ponto E — Pilot control: a governed halt. The terminated child leaves every
+// completed work order in place; the shell marks the interruption honestly.
+function stopOp() {
+  post("/api/op/stop", { project: projectId }).then(load).catch(function (e) { alert(e.message); });
 }
 function saveProfile() {
   post("/api/project/effort", { project: projectId,

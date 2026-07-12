@@ -5,7 +5,7 @@
 
 import { existsSync, rmSync } from "node:fs";
 
-import { readEvents } from "../evidence.js";
+import { appendEvent, readEvents } from "../evidence.js";
 import { collectMeterSamples, probeEffort } from "../effort.js";
 import {
   addCandidateSeedGoverned,
@@ -56,8 +56,8 @@ import { resolveSeeds } from "../resolver.js";
 import { buildActual } from "../effort.js";
 import { projectDir, WORKSPACE_DIR } from "../paths.js";
 import { abs, readJson, readText, sha256, writeArtifactOnce } from "../stores.js";
-import { FakeRuntime } from "../runtime.js";
-import type { ContextManifest } from "../types.js";
+import { FakeRuntime, OpCancelledError } from "../runtime.js";
+import type { ContextManifest, EvidenceEvent } from "../types.js";
 
 let passed = 0;
 let failed = 0;
@@ -712,6 +712,94 @@ async function main(): Promise<void> {
     (reopened.status ?? "active") === "active" &&
       reopened.concludedAt === undefined &&
       readEvents(p2.id).some((e) => e.action === "project_reopened" && e.actor === "pilot"),
+  );
+
+  // ---------------------------------------------------------------------------
+  // LIVE EXECUTION OBSERVABILITY (parecer 2026-07-12, GPT parecer): the
+  // deliberately-slow fake runtime is what the shell's live operation card
+  // and "Parar esta operação" are verified against in the browser (ponto H).
+  // These checks exercise the building blocks at zero cost.
+  check(
+    "24a. OpCancelledError carries the right name",
+    new OpCancelledError("job-x").name === "OpCancelledError",
+  );
+  check(
+    "24b. OpCancelledError's message names the job",
+    new OpCancelledError("job-y").message.includes("job-y"),
+  );
+
+  process.env["PRODUCT_FAKE_DELAY_MS"] = "400";
+  const delayedRuntime = new FakeRuntime();
+  const genArgs = {
+    system: "smoke system",
+    prompt: "agent-id: smoke",
+    model: "haiku",
+    maxTokens: 10,
+    timeoutMs: 5000,
+    kind: "consult" as const,
+  };
+
+  const alreadyAborted = new AbortController();
+  alreadyAborted.abort();
+  let sawAlreadyAbortedError = false;
+  try {
+    await delayedRuntime.generate({ ...genArgs, jobId: "job-already-aborted", signal: alreadyAborted.signal });
+  } catch (e) {
+    sawAlreadyAbortedError = e instanceof OpCancelledError;
+  }
+  check(
+    "24c. an already-aborted signal rejects immediately with OpCancelledError",
+    sawAlreadyAbortedError,
+  );
+
+  const midAbort = new AbortController();
+  setTimeout(() => midAbort.abort(), 100);
+  let sawMidAbortError = false;
+  try {
+    await delayedRuntime.generate({ ...genArgs, jobId: "job-mid-abort", signal: midAbort.signal });
+  } catch (e) {
+    sawMidAbortError = e instanceof OpCancelledError;
+  }
+  check("24d. a signal aborted mid-wait rejects with OpCancelledError", sawMidAbortError);
+
+  let activityCount = 0;
+  const delayedResult = await delayedRuntime.generate({
+    ...genArgs,
+    jobId: "job-heartbeat",
+    onActivity: () => {
+      activityCount += 1;
+    },
+  });
+  check("24e. onActivity fires at least once during a delayed successful call", activityCount > 0);
+  check(
+    "24f. the delayed call still returns the deterministic fake answer",
+    delayedResult.text.length > 0,
+  );
+
+  delete process.env["PRODUCT_FAKE_DELAY_MS"];
+  const fastStart = Date.now();
+  await delayedRuntime.generate({ ...genArgs, jobId: "job-after-reset" });
+  check(
+    "24g. resetting PRODUCT_FAKE_DELAY_MS restores the zero-cost default",
+    Date.now() - fastStart < 200,
+  );
+
+  // "operation_cancelled" round-trips through the append-only evidence log —
+  // what the Pilot's "Parar esta operação" writes (actor pilot, ponto E).
+  appendEvent({
+    ts: new Date().toISOString(),
+    projectId: project.id,
+    iteration: project.iteration,
+    actor: "pilot",
+    action: "operation_cancelled",
+    note: "consult",
+    scripted: true,
+  } satisfies EvidenceEvent);
+  check(
+    "24h. operation_cancelled round-trips through readEvents, actor pilot",
+    readEvents(project.id).some(
+      (e) => e.action === "operation_cancelled" && e.actor === "pilot" && e.scripted,
+    ),
   );
 
   console.log(`\n${passed}/${passed + failed} checks passed`);
