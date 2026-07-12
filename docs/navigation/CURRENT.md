@@ -126,15 +126,29 @@ commit is invisible state and breaks the model. (Pilot's standing grant,
 2026-07-12.)
 
 ## Last Updated
-Session 013 (2026-07-12, night) — the Pilot's first HUMAN test happened and
-was measured (100 min, 27k tokens, 23 questions, 15 deferred by "Chega",
-2 decisions, concluded); his ten-point parecer was interviewed and executed
-as the SENSEI REFORM (ownership, victories, graduation, base photo) plus
-per-phase effort profile, visible spend, 2–4 option control, the 5-craft
-reference Guild (candidates awaiting his admission) and the metrics
-extractor. Smoke 88/88, tsc strict, verified live on :4901 against the
-real migrated library; the live :4900 needs a restart to run the reform.
-ROADMAP registered (parecer doc): the Absorption menu (photos + interview,
-video v2) and system-suggested Sensei evolutions, both Pilot-governed.
-Detail: docs/navigation/2026/2026-07.md addendum Session 013;
-docs/reviews/PARECER-PILOTO-2026-07-12-NOITE.md.
+Session 014 (2026-07-12, night, cont.) — the GPT observability parecer
+executed in full: the running version is visible (build SHA, start time,
+staleness vs repo HEAD), the live operation card shows honest phases /
+work order N of M / model+effort / heartbeat from real child-process
+activity, "Parar esta operação" is a governed halt (operation_cancelled,
+actor pilot, completed work orders preserved), polling failure is visible
+(a hung fetch never rejects — the banner derives from the age of the last
+good poll), no user text is ever lost, and metrics.ts opens with the
+TEST-CONDITION DISCLOSURE (the story project testifies: all haiku/low,
+30 reconsults vs 4 consults — the runaway interview is now measured).
+Smoke 96/96, tsc strict, the 11 browser checks of the parecer pass; the
+live :4900 RESTARTED onto 56dee5b and self-reports its build. First
+session under the fan-out directive (sonnet implements under spec; the
+worker verifies and commits). Owed next from the GPT appendix (arriving
+as one consolidated prompt): interview-growth containment, three coherent
+questions per submission, aggregated reconsult, mandatory Project Review
+on close, Mode Edit. Detail: docs/navigation/2026/2026-07.md Session 014;
+docs/reviews/PARECER-GPT-2026-07-12-OBSERVABILIDADE.md.
+
+Prior save (Session 013): the Pilot's first HUMAN test, measured (100 min,
+27k tokens, 23 questions, 15 deferred by "Chega", concluded); the SENSEI
+REFORM (ownership, victories, graduation, base photo), per-phase effort
+profile, 2–4 option control, the 5-craft reference Guild (candidates
+awaiting admission), the metrics extractor. ROADMAP: Absorption menu and
+system-suggested Sensei evolutions, both Pilot-governed. Detail: addendum
+Session 013; docs/reviews/PARECER-PILOTO-2026-07-12-NOITE.md.
