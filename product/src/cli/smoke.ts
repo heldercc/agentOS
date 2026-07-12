@@ -11,6 +11,7 @@ import {
   addCandidateSeedGoverned,
   advanceIteration,
   answerQuestion,
+  concludeProject,
   decideCandidate,
   decideSeedGoverned,
   declareContextSufficient,
@@ -25,6 +26,7 @@ import {
   readWorkOrders,
   recordSeedEvidenceGoverned,
   refineOption,
+  reopenProject,
   reviseSeedGoverned,
   runCandidate,
   runConsult,
@@ -589,6 +591,32 @@ async function main(): Promise<void> {
     storyOf(p2.id)
       .iterations.flatMap((i) => i.items)
       .some((i) => i.action === "context_sufficient" && i.actor === "pilot"),
+  );
+
+  // Project lifecycle (parecer 2026-07-12): concluding is a governed act —
+  // freeze and archive, never delete; reopening leaves evidence.
+  const closed = concludeProject(p2.id, "provou a saída de suficiência", true);
+  check(
+    "23a. concluding freezes the project with the Pilot's note",
+    closed.status === "concluded" &&
+      closed.concludedNote === "provou a saída de suficiência" &&
+      typeof closed.concludedAt === "string",
+  );
+  check(
+    "23b. nothing is deleted — story, questions and state survive the archive",
+    storyOf(p2.id).iterations.length > 0 && readQuestions(p2.id).length > 0,
+  );
+  check(
+    "23c. the conclusion is evidence, actor pilot",
+    readEvents(p2.id).some((e) => e.action === "project_concluded" && e.actor === "pilot"),
+  );
+  check("23d. concluding twice is idempotent", concludeProject(p2.id, undefined, true).concludedAt === closed.concludedAt);
+  const reopened = reopenProject(p2.id, true);
+  check(
+    "23e. reopening restores the active state and leaves evidence",
+    (reopened.status ?? "active") === "active" &&
+      reopened.concludedAt === undefined &&
+      readEvents(p2.id).some((e) => e.action === "project_reopened" && e.actor === "pilot"),
   );
 
   console.log(`\n${passed}/${passed + failed} checks passed`);

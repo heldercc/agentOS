@@ -85,6 +85,13 @@ export interface Project {
   createdAt: string;
   /** Current iteration of the loop, 1-based. */
   iteration: number;
+  /** Lifecycle: absent = active (pre-lifecycle records stay valid).
+   *  Concluding is a governed act — archive, never delete; reopening
+   *  leaves evidence. */
+  status?: "active" | "concluded";
+  concludedAt?: string;
+  /** The Pilot's closing note — what this project ended as. */
+  concludedNote?: string;
 }
 
 /** One bounded specialist convened by the Kernel for this project. */
@@ -237,6 +244,8 @@ export interface EvidenceEvent {
   actor: "pilot" | "kernel";
   action:
     | "project_init"
+    | "project_concluded"
+    | "project_reopened"
     | "roster_ready"
     | "consulted"
     | "question_answered"

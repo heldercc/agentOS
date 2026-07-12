@@ -1117,6 +1117,38 @@ export function advanceIteration(projectId: string, scripted = false): Project {
 }
 
 // ---------------------------------------------------------------------------
+// Project lifecycle (parecer 2026-07-12): the production loop existed but the
+// project's whole life did not. Concluding is a governed act — confirm the
+// result, review pending candidate seeds, freeze and archive; NEVER delete.
+// Reopening is equally governed and leaves evidence.
+
+export function concludeProject(projectId: string, note?: string, scripted = false): Project {
+  const project = getProject(projectId);
+  if ((project.status ?? "active") === "concluded") return project;
+  const concluded: Project = {
+    ...project,
+    status: "concluded",
+    concludedAt: nowIso(),
+    ...(note?.trim() ? { concludedNote: note.trim() } : {}),
+  };
+  writeJson(abs(projectDir(projectId), "project.json"), concluded);
+  event(concluded, "pilot", "project_concluded", scripted, {
+    ...(note?.trim() ? { note: note.trim() } : {}),
+  });
+  return concluded;
+}
+
+export function reopenProject(projectId: string, scripted = false): Project {
+  const project = getProject(projectId);
+  if ((project.status ?? "active") !== "concluded") return project;
+  const reopened: Project = { ...project, status: "active" };
+  delete reopened.concludedAt;
+  writeJson(abs(projectDir(projectId), "project.json"), reopened);
+  event(reopened, "pilot", "project_reopened", scripted, {});
+  return reopened;
+}
+
+// ---------------------------------------------------------------------------
 // Human Intelligence governance (ADR-0020): store transitions live in hi.ts;
 // these wrappers add what governance requires — the evidence event, pilot
 // actor, always. The Kernel schedules seeds; only the user admits them.

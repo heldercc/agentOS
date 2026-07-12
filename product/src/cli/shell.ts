@@ -21,6 +21,7 @@ import {
   addCandidateSeedGoverned,
   advanceIteration,
   answerQuestion,
+  concludeProject,
   decideCandidate,
   decideSeedGoverned,
   getProject,
@@ -37,6 +38,7 @@ import {
   readSurfaces,
   readWorkOrders,
   refineOption,
+  reopenProject,
   declareContextSufficient,
   recordSeedEvidenceGoverned,
   runCandidate,
@@ -175,9 +177,21 @@ function stateView(projectId: string): unknown {
     artifacts,
     workOrders: readWorkOrders(projectId, project.iteration),
     events,
+    /** Seeds awaiting the Pilot's judgement — reviewed before concluding. */
+    pendingCandidates: listCandidates().length,
     busy: busy.get(projectId) ?? null,
     lastError: lastError.get(projectId) ?? null,
   };
+}
+
+/** Concluded projects are frozen: governance ops require reopening first. */
+function guardActive(projectId: string, res: ServerResponse): boolean {
+  const p = getProject(projectId);
+  if ((p.status ?? "active") === "concluded") {
+    json(res, 409, { error: "projeto concluído — reabre-o para continuar a trabalhar" });
+    return false;
+  }
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -218,7 +232,30 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     return;
   }
   if (req.method === "GET" && url.pathname === "/api/projects") {
-    json(res, 200, { projects: listProjects(), runtime: RUNTIME_NAME });
+    // Enriched for the home page: human state, last activity, next action.
+    const projects = listProjects().map((p) => {
+      const events = readEvents(p.id);
+      const last = events[events.length - 1];
+      return {
+        ...p,
+        status: p.status ?? "active",
+        stage: stageOf(p.id),
+        lastActivityAt: last ? last.ts : p.createdAt,
+      };
+    });
+    json(res, 200, { projects, runtime: RUNTIME_NAME });
+    return;
+  }
+  if (req.method === "POST" && url.pathname === "/api/project/conclude") {
+    const b = await body(req);
+    const project = concludeProject(b["project"] ?? "", b["note"]);
+    json(res, 200, { status: project.status });
+    return;
+  }
+  if (req.method === "POST" && url.pathname === "/api/project/reopen") {
+    const b = await body(req);
+    const project = reopenProject(b["project"] ?? "");
+    json(res, 200, { status: project.status });
     return;
   }
   if (req.method === "POST" && url.pathname === "/api/project") {
@@ -295,6 +332,7 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
   }
   if (req.method === "POST" && url.pathname === "/api/interview/enough") {
     const b = await body(req);
+    if (!guardActive(b["project"] ?? "", res)) return;
     const n = declareContextSufficient(b["project"] ?? "", b["note"]?.trim() || undefined);
     json(res, 200, { deferred: n });
     return;
@@ -333,6 +371,7 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
   if (req.method === "POST" && url.pathname === "/api/option/refine") {
     const b = await body(req);
     const projectId = b["project"] ?? "";
+    if (!guardActive(projectId, res)) return;
     if (!b["instruction"]?.trim()) {
       json(res, 400, { error: "o refinamento precisa da tua instrução" });
       return;
@@ -379,6 +418,7 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
   if (req.method === "POST" && url.pathname === "/api/op") {
     const b = await body(req);
     const projectId = b["project"] ?? "";
+    if (!guardActive(projectId, res)) return;
     const op = b["op"] ?? "";
     const level = asLevel(b["level"]);
     const project = getProject(projectId);
@@ -421,6 +461,7 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
   if (req.method === "POST" && url.pathname === "/api/answer") {
     const b = await body(req);
     const projectId = b["project"] ?? "";
+    if (!guardActive(projectId, res)) return;
     if (!b["answer"]?.trim()) {
       json(res, 400, { error: "a resposta não pode ser vazia" });
       return;
@@ -442,6 +483,7 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
   }
   if (req.method === "POST" && url.pathname === "/api/decide") {
     const b = await body(req);
+    if (!guardActive(b["project"] ?? "", res)) return;
     decideCandidate(
       b["project"] ?? "",
       b["decision"] === "approve" ? "approve" : "reject",
@@ -452,12 +494,18 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
   }
   if (req.method === "POST" && url.pathname === "/api/advance") {
     const b = await body(req);
+    if (!guardActive(b["project"] ?? "", res)) return;
+    // "Melhorar" é uma nova passagem pelo ciclo com a tua direção à frente —
+    // nunca uma etapa isolada: a nota entra no contexto de todo o trabalho
+    // seguinte, as decisões anteriores ficam preservadas.
+    if (b["direction"]?.trim()) addPilotNote(b["project"] ?? "", b["direction"].trim());
     advanceIteration(b["project"] ?? "");
     json(res, 200, { ok: true });
     return;
   }
   if (req.method === "POST" && url.pathname === "/api/note") {
     const b = await body(req);
+    if (!guardActive(b["project"] ?? "", res)) return;
     if (b["note"]?.trim()) addPilotNote(b["project"] ?? "", b["note"].trim());
     json(res, 200, { ok: true });
     return;
@@ -482,7 +530,7 @@ const PAGE = /* html */ `<!doctype html>
          font:15px/1.55 "Segoe UI", system-ui, sans-serif; }
   .wrap { max-width:980px; margin:0 auto; padding:24px 16px 80px; }
   h1 { font-size:20px; margin:0 0 4px; } h1 a { color:var(--tx); text-decoration:none; }
-  h2 { font-size:15px; margin:0 0 10px; color:var(--acc); }
+  h2 { font-size:15px; margin:0 0 10px; color:var(--tx); }
   .sub { color:var(--dim); font-size:13px; margin-bottom:20px; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:10px;
           padding:16px; margin-bottom:14px; }
@@ -548,6 +596,35 @@ const PAGE = /* html */ `<!doctype html>
   .xp .st.admitted { color:var(--ok); border-color:var(--ok); }
   .xp .st.candidate { color:var(--warn); border-color:var(--warn); }
   .xp .st.discarded { color:var(--dim); }
+
+  /* A jornada persistente — cor com função: azul = ação atual, âmbar =
+     decisão humana pendente, verde = feito/aprovado, cinza = passado/técnico. */
+  .journey { display:flex; flex-wrap:wrap; gap:4px; align-items:center; margin:14px 0 4px; }
+  .jstep { font-size:12px; padding:3px 10px; border-radius:20px; border:1px solid var(--line);
+           color:var(--dim); }
+  .jstep.done { color:var(--ok); border-color:rgba(63,185,107,.55); }
+  .jstep.now { color:#08111e; background:var(--acc); border-color:var(--acc); font-weight:700; }
+  .jstep.now.need { background:var(--warn); border-color:var(--warn); }
+  .jsep { color:var(--line); font-size:12px; }
+  .jline { font-size:12.5px; color:var(--dim); margin:0 0 16px; }
+  .jline b { color:var(--tx); }
+  .card.primary { border-left:4px solid var(--acc); }
+  .card.primary.need { border-left-color:var(--warn); }
+  .card.primary.wait { border-left-color:var(--dim); }
+  .card.primary.closed { border-left-color:var(--ok); }
+  .kicker { font-size:11px; letter-spacing:.12em; font-weight:700; color:var(--acc);
+            margin-bottom:6px; }
+  .primary.need .kicker { color:var(--warn); }
+  .primary.wait .kicker { color:var(--dim); }
+  .primary.closed .kicker { color:var(--ok); }
+  button.approve { background:var(--ok); }
+  .badge.ok { color:var(--ok); border-color:var(--ok); }
+  .badge.warn { color:var(--warn); border-color:var(--warn); }
+  .proj .next { font-size:12.5px; color:var(--warn); margin-top:2px; }
+  .proj .next.act { color:var(--acc); }
+  .proj.closed { opacity:.75; }
+  .wo { font-size:12px; color:var(--dim); padding:3px 0; border-bottom:1px dashed var(--line); }
+  .wo b { color:var(--tx); }
 </style>
 </head>
 <body>
@@ -574,6 +651,61 @@ function post(path, data) {
     });
 }
 
+// ---------------- a jornada (linguagem humana, persistente) ----------------
+// A jornada orienta; o Kernel continua a decidir que passos são necessários.
+// Os estados internos (consult, candidate, execute…) vivem em Auditoria.
+var STEPS = ["Intenção", "Compreender", "Decidir", "Aprovar", "Criar",
+  "Avaliar e aprender", "Continuar ou concluir"];
+// kind: "need" = decisão humana pendente (âmbar) · "act" = lançar o sistema (azul)
+var STAGE_MAP = {
+  consult:   { step: 1, kind: "act",  now: "o sistema vai compreender a tua intenção",
+               next: "Pôr a equipa a compreender" },
+  interview: { step: 1, kind: "need", now: "há perguntas para ti",
+               next: "Responder — ou declarar que chega" },
+  candidate: { step: 2, kind: "act",  now: "hora de decidir o rumo",
+               next: "Pedir opções ou condensar o estado" },
+  decide:    { step: 2, kind: "need", now: "há opções à tua espera",
+               next: "Escolher ou refinar uma opção" },
+  approve:   { step: 3, kind: "need", now: "um estado espera a tua aprovação",
+               next: "Aprovar ou rejeitar com direção" },
+  execute:   { step: 4, kind: "act",  now: "pronto para criar",
+               next: "Mandar criar" },
+  advance:   { step: 5, kind: "need", now: "resultado entregue — avalia e decide o futuro",
+               next: "Avaliar, melhorar, continuar ou concluir" }
+};
+function isConcluded(p) { return (p.status || "active") === "concluded"; }
+function stageInfo(stage, project) {
+  if (project && isConcluded(project)) {
+    return { step: 6, kind: "done", now: "projeto concluído e arquivado",
+             next: "Reabrir, se quiseres continuar" };
+  }
+  return STAGE_MAP[stage] || STAGE_MAP.consult;
+}
+function journeyBar(s) {
+  var info = stageInfo(s.stage, s.project);
+  var h = '<div class="journey">';
+  STEPS.forEach(function (label, i) {
+    var cls;
+    if (info.kind === "done") cls = i <= info.step ? "done" : "todo";
+    else cls = i < info.step ? "done" : i === info.step ? (info.kind === "need" ? "now need" : "now") : "todo";
+    h += '<span class="jstep ' + cls + '">' + label + "</span>";
+    if (i < STEPS.length - 1) h += '<span class="jsep">›</span>';
+  });
+  h += "</div>";
+  var nxt = info.step < STEPS.length - 1 ? STEPS[info.step + 1] : null;
+  h += '<div class="jline">Estás em <b>' + STEPS[info.step] + "</b> — " + esc(info.now) +
+    (nxt ? ' · depois vem <b>' + nxt + "</b>" : "") + "</div>";
+  return h;
+}
+function relTime(ts) {
+  var min = Math.round((Date.now() - new Date(ts).getTime()) / 60000);
+  if (min < 1) return "agora mesmo";
+  if (min < 60) return "há " + min + " min";
+  var h = Math.round(min / 60);
+  if (h < 24) return "há " + h + " h";
+  return "há " + Math.round(h / 24) + " dia(s)";
+}
+
 // ---------------- home ----------------
 function renderHome() {
   fetch("/api/projects").then(function (r) { return r.json(); }).then(function (data) {
@@ -587,9 +719,23 @@ function renderHome() {
       '<div class="err" id="cerr"></div></div>';
     if (data.projects.length) {
       h += "<h2 style='margin:18px 0 10px'>Projetos</h2>";
-      data.projects.forEach(function (p) {
-        h += '<a class="proj" href="/?p=' + esc(p.id) + '"><b>' + esc(p.name) + "</b> " +
-          '<small>· iteração ' + p.iteration + " · " + esc(p.id) + "</small></a>";
+      var projs = data.projects.slice().sort(function (a, b) {
+        var ca = isConcluded(a) ? 1 : 0, cb = isConcluded(b) ? 1 : 0;
+        if (ca !== cb) return ca - cb;
+        return (b.lastActivityAt || "").localeCompare(a.lastActivityAt || "");
+      });
+      projs.forEach(function (p) {
+        var info = stageInfo(p.stage, p);
+        var closed = isConcluded(p);
+        h += '<a class="proj' + (closed ? " closed" : "") + '" href="/?p=' + esc(p.id) + '">' +
+          "<b>" + esc(p.name) + "</b> " +
+          (closed ? '<span class="badge ok">concluído</span>'
+                  : '<span class="badge">' + STEPS[info.step] + "</span>") +
+          '<small> · passagem ' + p.iteration + " · última atividade " +
+          relTime(p.lastActivityAt || p.createdAt) + "</small>" +
+          '<div class="next' + (info.kind === "act" ? " act" : "") + '">' +
+          (closed ? "arquivado — podes reabrir" : "próxima ação: " + esc(info.next)) +
+          "</div></a>";
       });
     }
     app.innerHTML = h;
@@ -651,58 +797,117 @@ function loadProbe(op) {
     });
 }
 
+// O cartão dominante: UMA área que diz o que precisa do utilizador agora.
+// Azul = ação para lançar; âmbar = decisão humana pendente; verde = concluído.
+var BUSY_HUMAN = {
+  consult: "a equipa está a compreender a tua intenção e a preparar perguntas",
+  answer: "a tua resposta está a ser levada aos agentes que perguntaram",
+  candidate: "o sistema está a condensar o estado do projeto",
+  decision: "o sistema está a preparar opções genuinamente diferentes",
+  refine: "a tua instrução está a refinar a opção",
+  execute: "o sistema está a criar — o resultado regressa sozinho"
+};
+var concluding = false;
+
+function primary(kind, title, inner) {
+  var cls = kind === "need" ? " need" : kind === "wait" ? " wait" : kind === "closed" ? " closed" : "";
+  var kick = kind === "wait" ? "O SISTEMA ESTÁ A TRABALHAR" :
+    kind === "closed" ? "PROJETO CONCLUÍDO" : "O QUE PRECISA DE TI AGORA";
+  return '<div class="card primary' + cls + '"><div class="kicker">' + kick + "</div>" +
+    "<h2>" + title + "</h2>" + inner + "</div>";
+}
+
+function concludeBlock(s) {
+  var h = '<div class="kv" style="margin-top:10px">Concluir é um ato governado: o resultado fica ' +
+    "confirmado, o projeto congela e é <b>arquivado — nada se apaga</b>, toda a proveniência fica. " +
+    "Podes reabrir mais tarde, com evidência.</div>";
+  if (s.pendingCandidates > 0) {
+    h += '<div class="kv" style="margin-top:6px;color:var(--warn)">🌱 ' + s.pendingCandidates +
+      " aprendizagem(ns) candidata(s) esperam o teu julgamento — resolve-as na Inteligência Humana " +
+      "antes de arquivar, para o projeto fechar limpo.</div>";
+  }
+  h += '<label>O que este projeto terminou a ser (opcional — fica no registo)</label>' +
+    '<textarea id="cnote"></textarea>' +
+    '<div class="row" style="margin-top:10px">' +
+    '<button class="approve" onclick="doConclude()">Concluir e arquivar</button>' +
+    '<button class="ghost" onclick="cancelConclude()">Cancelar</button></div>';
+  return h;
+}
+
 function primaryCard() {
   var s = state, h = "";
+  if (isConcluded(s.project)) {
+    return primary("closed", esc(s.project.name) + " está arquivado",
+      '<div class="kv">Concluído ' + (s.project.concludedAt ? relTime(s.project.concludedAt) : "") +
+      (s.project.concludedNote ? ' · "' + esc(s.project.concludedNote) + '"' : "") +
+      " · Tudo fica: história, artefactos, proveniência.</div>" +
+      '<div style="margin-top:12px"><button class="ghost" onclick="reopen()">Reabrir projeto</button></div>');
+  }
   if (s.busy) {
-    return '<div class="card"><h2>Em curso</h2><div class="spin">⏳ ' + esc(s.busy.op) +
+    return primary("wait", "Não precisas de fazer nada",
+      '<div class="spin">⏳ ' + esc(BUSY_HUMAN[s.busy.op] || s.busy.op) +
       " — desde " + esc(s.busy.startedAt.slice(11, 19)) +
-      '</div><div class="kv" style="margin-top:6px">O Kernel move; tu decides quando ele voltar.</div></div>';
+      '</div><div class="kv" style="margin-top:6px">O sistema move por baixo; tu decides quando ele voltar.</div>');
   }
   if (s.stage === "consult") {
-    h = '<div class="card"><h2>1 · Convocar a equipa</h2>' +
-      '<div class="kv">O Kernel ' + (s.roster ? "reconsulta os agentes" :
-        "propõe agentes especialistas delimitados a partir da tua intenção") +
-      " e recolhe as perguntas deles.</div>" + levelSelector("consult") +
-      '<div style="margin-top:12px"><button onclick="op(\\'consult\\')">Convocar agentes e recolher perguntas</button></div></div>';
+    h = primary("act", s.roster ? "Voltar a pôr a equipa a compreender" : "Pôr a equipa a compreender a tua intenção",
+      '<div class="kv">' + (s.roster ? "A equipa reconsulta com tudo o que já decidiste." :
+        "O sistema monta uma equipa delimitada a partir da tua intenção e traz-te só as perguntas que importam.") +
+      "</div>" + levelSelector("consult") +
+      '<div style="margin-top:12px"><button onclick="op(\\'consult\\')">Começar — recolher as perguntas da equipa</button></div>');
   } else if (s.stage === "interview" && s.interview.top) {
     var t = s.interview.top;
-    h = '<div class="card"><h2>2 · Uma pergunta de cada vez</h2>' +
+    h = primary("need", "Uma pergunta de cada vez",
       '<div class="q">' + esc(t.text) + "</div>" +
-      '<div class="kv">pedida por: <b>' + esc(t.askedBy.join(", ")) + "</b> · " +
-      s.interview.open + " em aberto (as restantes esperam)</div>" +
+      '<div class="kv">' + s.interview.open + " em aberto (as restantes esperam a vez)</div>" +
       '<label>A tua resposta</label><textarea id="answer"></textarea>' +
       '<div class="row" style="margin-top:10px"><button onclick="answer(\\'' + esc(t.id) + '\\')">Responder</button>' +
       '<button class="ghost" onclick="enough()">Chega — constrói com o que tens</button></div>' +
-      '<div class="kv" style="margin-top:6px">Ao responder, os agentes que perguntaram reconsultam automaticamente. ' +
-      "Declarar suficiência é teu por direito: as perguntas em aberto ficam adiadas e visíveis, nunca respondidas por ti.</div></div>";
+      '<div class="kv" style="margin-top:6px">Ao responder, quem perguntou volta a pensar sozinho. ' +
+      "Declarar suficiência é teu por direito: o que ficar em aberto fica adiado e visível, nunca inventado.</div>");
   } else if (s.stage === "decide" && s.surface) {
     h = decisionSurfaceCard(s.surface);
   } else if (s.stage === "candidate") {
     var rej = s.candidate && s.candidate.status === "rejected" && s.candidate.iteration === s.project.iteration;
-    h = '<div class="card"><h2>3 · Decidir e condensar</h2><div class="kv">' +
-      (rej ? "Rejeitaste o candidato anterior — o Kernel reconstrói com a tua nota." :
-        "Sem perguntas em aberto. Podes pedir opções concretas (o Kernel mastiga e tu escolhes) " +
-        "ou condensar já o estado do projeto.") +
+    h = primary("act", "Decidir o rumo",
+      '<div class="kv">' +
+      (rej ? "Rejeitaste a proposta anterior — o sistema reconstrói com a tua nota." :
+        "Sem perguntas em aberto. Pede opções concretas para escolheres, ou condensa já o estado do projeto.") +
       "</div>" + levelSelector("candidate") +
       '<div class="row" style="margin-top:12px">' +
-      '<button onclick="op(\\'decision\\')">Quero opções (superfície de decisão)</button>' +
-      '<button class="ghost" onclick="op(\\'candidate\\')">Construir estado candidato</button></div></div>';
+      '<button onclick="op(\\'decision\\')">Quero opções para escolher</button>' +
+      '<button class="ghost" onclick="op(\\'candidate\\')">Condensar já o estado</button></div>');
   } else if (s.stage === "approve" && s.candidate) {
-    h = '<div class="card"><h2>4 · Aprovas este estado?</h2>' + stateDoc(s.candidate.state) +
+    h = primary("need", "Aprovas este estado do projeto?",
+      stateDoc(s.candidate.state) +
       '<label>Nota (obrigatória se rejeitares — é a tua direção)</label><textarea id="dnote"></textarea>' +
-      '<div class="row" style="margin-top:10px"><button onclick="decide(\\'approve\\')">Aprovar</button>' +
-      '<button class="danger" onclick="decide(\\'reject\\')">Rejeitar com nota</button></div></div>';
+      '<div class="row" style="margin-top:10px"><button class="approve" onclick="decide(\\'approve\\')">Aprovar</button>' +
+      '<button class="danger" onclick="decide(\\'reject\\')">Rejeitar com nota</button></div>');
   } else if (s.stage === "execute") {
-    h = '<div class="card"><h2>5 · Execução governada</h2>' +
-      '<div class="kv">Estado aprovado. Próxima ação: <b>' +
+    h = primary("act", "Mandar criar",
+      '<div class="kv">Estado aprovado. O sistema vai criar: <b>' +
       esc(s.approved ? s.approved.state.nextAction : "") + "</b></div>" + levelSelector("execute") +
-      '<div style="margin-top:12px"><button onclick="op(\\'execute\\')">Executar</button></div>' +
-      '<div class="kv" style="margin-top:6px">Os artefactos regressam sozinhos ao workspace do projeto.</div></div>';
+      '<div style="margin-top:12px"><button onclick="op(\\'execute\\')">Criar</button></div>' +
+      '<div class="kv" style="margin-top:6px">O resultado regressa sozinho a este ecrã.</div>');
   } else if (s.stage === "advance") {
-    h = '<div class="card"><h2>6 · Iteração concluída</h2>' +
-      '<div class="kv">Os artefactos desta iteração estão em baixo. O loop continua.</div>' +
-      '<div style="margin-top:12px"><button onclick="advance()">Avançar para a iteração ' +
-      (s.project.iteration + 1) + "</button></div></div>";
+    var inner = '<div class="kv">O resultado está em baixo, em <b>Resultados</b>. Lê-o. ' +
+      "Se uma GuruSeed ajudou ou atrapalhou, devolve o teu veredicto na <b>Inteligência Humana</b> — " +
+      "é assim que o sistema aprende contigo.</div>";
+    if (s.pendingCandidates > 0) {
+      inner += '<div class="kv" style="margin-top:6px;color:var(--warn)">🌱 ' + s.pendingCandidates +
+        " aprendizagem(ns) candidata(s) à espera do teu julgamento na Inteligência Humana.</div>";
+    }
+    if (concluding) {
+      inner += concludeBlock(s);
+    } else {
+      inner += '<label>Melhorar — dá a tua direção; o ciclo repete preservando o que já decidiste</label>' +
+        '<textarea id="improveDir" placeholder="ex.: gostei, mas quero mais humor e um final mais calmo"></textarea>' +
+        '<div class="row" style="margin-top:10px">' +
+        '<button onclick="improve()">Melhorar — nova passagem com a minha direção</button>' +
+        '<button class="ghost" onclick="advance()">Nova passagem, sem direção</button>' +
+        '<button class="ghost" onclick="concludeUI()">Concluir projeto…</button></div>';
+    }
+    h = primary("need", "Resultado entregue — avalia e decide o futuro", inner);
   }
   return h;
 }
@@ -717,10 +922,10 @@ function latestOptions(surface) {
 }
 
 function decisionSurfaceCard(ds) {
-  var h = '<div class="card"><h2>Decisão governada</h2>' +
+  var h = primary("need", "Escolhe o rumo",
     '<div class="q">' + esc(ds.decision) + "</div>" +
-    '<div class="kv">' + esc(ds.why) + " · O Kernel mastigou; a escolha é tua. " +
-    "Podes selecionar, ou refinar uma opção com uma frase antes de selecionar.</div></div>";
+    '<div class="kv">' + esc(ds.why) + " · O sistema mastigou; a escolha é tua. " +
+    "Podes selecionar, ou refinar uma opção com uma frase antes de selecionar.</div>");
   if (ds.recommendation) {
     h += '<div class="card" style="border-color:var(--warn)"><div class="kv">' +
       '<b style="color:var(--warn)">Recomendação do Kernel:</b> ' +
@@ -785,7 +990,7 @@ function tabsBar() {
       '" onclick="setView(\\'' + id + '\\')">' + label + "</button>";
   }
   return '<div class="tabs">' + t("agora", "Agora") + t("historia", "História") +
-    t("hi", "Inteligência Humana") + "</div>";
+    t("hi", "Inteligência Humana") + t("audit", "Detalhes / Auditoria") + "</div>";
 }
 function setView(v) { view = v; render(); }
 
@@ -793,92 +998,122 @@ function render() {
   var s = state;
   if (!s || !s.project) return;
   var h = '<h1><a href="/">AgentOS</a> · ' + esc(s.project.name) + "</h1>" +
-    '<div class="sub">iteração ' + s.project.iteration +
-    ' <span class="badge acc">' + esc(s.stage) + "</span>" +
-    '<span class="badge">runtime: ' + esc(s.runtime) + "</span>" +
-    '<span class="badge">autoridade automática ≤ ' + esc(s.autoMaxLevel) + "</span></div>";
+    '<div class="sub">passagem ' + s.project.iteration + " pelo ciclo" +
+    (isConcluded(s.project) ? ' <span class="badge ok">concluído</span>' : "") + "</div>";
+  h += journeyBar(s);
   h += tabsBar();
-  if (view !== "agora") {
+  if (view === "historia" || view === "hi") {
     h += '<div id="viewbox" class="kv">a carregar…</div>';
     app.innerHTML = h;
     if (view === "historia") loadStory();
     if (view === "hi") loadHi();
     return;
   }
-  h += agoraBody(s);
+  h += view === "audit" ? auditBody(s) : agoraBody(s);
   var focus = document.activeElement && document.activeElement.id;
   var vals = {};
-  ["answer", "dnote", "pnote"].forEach(function (id) { if ($(id)) vals[id] = $(id).value; });
+  ["answer", "dnote", "pnote", "improveDir", "cnote"].forEach(function (id) {
+    if ($(id)) vals[id] = $(id).value;
+  });
   app.innerHTML = h;
   Object.keys(vals).forEach(function (id) { if ($(id)) $(id).value = vals[id]; });
   if (focus && $(focus)) $(focus).focus();
-  if (s.stage === "consult") loadProbe("consult");
-  if (s.stage === "candidate") loadProbe("candidate");
-  if (s.stage === "execute") loadProbe("execute");
+  if (view === "agora" && !isConcluded(s.project)) {
+    if (s.stage === "consult") loadProbe("consult");
+    if (s.stage === "candidate") loadProbe("candidate");
+    if (s.stage === "execute") loadProbe("execute");
+  }
 }
 
+// Agora: o cartão dominante + o que já existe (resultados, respostas, estado).
+// O diagnóstico técnico (agentes, work orders, eventos, runtime) vive na
+// Auditoria — disponível, nunca a dominar o ecrã.
 function agoraBody(s) {
   var h = "";
   if (s.lastError) {
-    h += '<div class="card"><div class="err">⚠ ' + esc(s.lastError) + "</div></div>";
+    h += '<div class="card" style="border-left:4px solid var(--bad)"><div class="err">⚠ ' +
+      esc(s.lastError) + "</div></div>";
   }
   h += primaryCard();
 
-  if (s.approved && s.stage !== "approve") {
-    h += '<div class="card"><details><summary>Estado aprovado (it-' + s.approved.iteration +
-      ")</summary>" + stateDoc(s.approved.state) + "</details></div>";
-  }
-  if (s.roster) {
-    h += '<div class="card"><h2>Agentes temporários desta fase</h2>' +
-      '<div class="kv">Vasos operacionais, não personalidades: cada um é composto no momento — ' +
-      "mandato + contexto do projeto + expertise admitida + orçamento de esforço.</div><div style='margin-top:8px'>";
-    s.roster.forEach(function (a) {
-      h += '<span class="agent"><b>' + esc(a.title) + "</b><div>" + esc(a.mandate) + "</div></span>";
-    });
-    h += "</div></div>";
-  }
-  if (s.interview.answered.length) {
-    h += '<div class="card"><details><summary>Respostas dadas (' + s.interview.answered.length +
-      ")</summary>";
-    s.interview.answered.forEach(function (q) {
-      h += '<div style="margin-top:10px"><div class="kv"><b>' + esc(q.text) + "</b> · " +
-        esc(q.askedBy.join(", ")) + "</div><div>" + esc(q.answer) + "</div></div>";
-    });
-    h += "</details></div>";
-  }
   if (s.artifacts.length) {
-    h += '<div class="card"><h2>Artefactos</h2>';
+    h += '<div class="card"><h2>Resultados</h2>';
     s.artifacts.forEach(function (a) {
-      h += "<details" + (a.content ? " open" : "") + "><summary>it-" + a.iteration + " · " +
-        esc(a.agentId) + " · " + a.chars + " chars</summary>";
+      h += "<details" + (a.content ? " open" : "") + "><summary>passagem " + a.iteration + " · " +
+        esc(a.agentId) + "</summary>";
       if (a.seeds && a.seeds.length) {
         h += "<div>";
         a.seeds.forEach(function (x) {
           h += '<span class="xchip" title="' + esc(x.reason) + '">🧠 ' + esc(x.title) + " v" + x.version +
             (x.mentorTitle ? " · " + esc(x.mentorTitle) : "") + "</span>";
         });
-        h += '<span class="kv" style="font-size:11px"> inteligência humana que moldou este artefacto</span></div>';
+        h += '<span class="kv" style="font-size:11px"> inteligência humana que moldou este resultado</span></div>';
       }
       if (a.content) h += "<pre>" + esc(a.content) + "</pre>";
-      else h += '<div class="kv">de uma iteração anterior — <a style="color:var(--acc);cursor:pointer" ' +
+      else h += '<div class="kv">de uma passagem anterior — <a style="color:var(--acc);cursor:pointer" ' +
         'onclick="viewArtifact(' + a.iteration + ',\\'' + esc(a.agentId) + '\\', this)">ver</a></div>';
       h += "</details>";
     });
     h += "</div>";
   }
-  h += '<div class="card"><h2>Nota ao Kernel</h2>' +
-    '<div class="kv">A tua direção entra no contexto de todo o trabalho seguinte.</div>' +
-    '<div class="row" style="margin-top:8px"><input id="pnote" class="grow" placeholder="ex.: mantém tudo em PT-PT">' +
-    '<button class="ghost" onclick="note()">Registar</button></div></div>';
+  if (s.approved && s.stage !== "approve") {
+    h += '<div class="card"><details><summary>O que já está decidido (estado aprovado, passagem ' +
+      s.approved.iteration + ")</summary>" + stateDoc(s.approved.state) + "</details></div>";
+  }
+  if (s.interview.answered.length) {
+    h += '<div class="card"><details><summary>Respostas que já dei (' + s.interview.answered.length +
+      ")</summary>";
+    s.interview.answered.forEach(function (q) {
+      h += '<div style="margin-top:10px"><div class="kv"><b>' + esc(q.text) + "</b></div><div>" +
+        esc(q.answer) + "</div></div>";
+    });
+    h += "</details></div>";
+  }
+  if (!isConcluded(s.project)) {
+    h += '<div class="card"><h2>Dar direção</h2>' +
+      '<div class="kv">A tua nota entra no contexto de todo o trabalho seguinte.</div>' +
+      '<div class="row" style="margin-top:8px"><input id="pnote" class="grow" placeholder="ex.: mantém tudo em PT-PT">' +
+      '<button class="ghost" onclick="note()">Registar</button></div></div>';
+  }
+  return h;
+}
+
+// Detalhes / Auditoria: runtime, etapa interna, agentes, work orders, eventos —
+// tudo inspecionável, nada disto é linguagem principal.
+function auditBody(s) {
+  var h = '<div class="card"><h2>Sistema</h2><div class="kv">' +
+    "runtime <b>" + esc(s.runtime) + "</b> · etapa interna <b>" + esc(s.stage) + "</b>" +
+    " · autoridade automática ≤ <b>" + esc(s.autoMaxLevel) + "</b>" +
+    " · iteração <b>" + s.project.iteration + "</b>" +
+    " · estado <b>" + esc(s.project.status || "active") + "</b>" +
+    (s.busy ? ' · em curso: <b>' + esc(s.busy.op) + "</b> desde " + esc(s.busy.startedAt.slice(11, 19)) : "") +
+    "</div></div>";
+  if (s.roster) {
+    h += '<div class="card"><h2>Agentes temporários</h2>' +
+      '<div class="kv">Vasos operacionais, não personalidades: mandato + contexto + expertise admitida ' +
+      "+ orçamento de esforço, compostos no momento.</div><div style='margin-top:8px'>";
+    s.roster.forEach(function (a) {
+      h += '<span class="agent"><b>' + esc(a.title) + "</b><div>" + esc(a.mandate) + "</div></span>";
+    });
+    h += "</div></div>";
+  }
+  if (s.workOrders.length) {
+    h += '<div class="card"><h2>Work orders desta iteração</h2>';
+    s.workOrders.forEach(function (w) {
+      h += '<div class="wo"><b>' + esc(w.id) + "</b> · " + esc(w.kind) + " · " + esc(w.model) +
+        " · esforço " + esc(w.effortLevel) + " · " + esc(w.status) +
+        (w.error ? ' · <span class="err">' + esc(w.error) + "</span>" : "") + "</div>";
+    });
+    h += "</div>";
+  }
   if (s.events.length) {
-    h += '<div class="card"><details><summary>Evidência (últimos ' + s.events.length +
-      " eventos)</summary>";
+    h += '<div class="card"><h2>Evidência (últimos ' + s.events.length + " eventos)</h2>";
     s.events.forEach(function (e) {
       h += '<div class="ev">' + esc(e.ts.slice(11, 19)) + " it" + e.iteration + " <b>" +
         esc(e.action) + "</b> · " + esc(e.actor) +
         (e.agentId ? " · " + esc(e.agentId) : "") + (e.note ? " · " + esc(e.note) : "") + "</div>";
     });
-    h += "</details></div>";
+    h += "</div>";
   }
   return h;
 }
@@ -886,6 +1121,8 @@ function agoraBody(s) {
 // ---------------- história (a linha do tempo do projeto) ----------------
 var LBL = {
   project_init: "Projeto criado",
+  project_concluded: "Concluí o projeto — congelado e arquivado, nada apagado",
+  project_reopened: "Reabri o projeto",
   roster_ready: "Agentes temporários convocados",
   consulted: "Consulta",
   reconsulted: "Reconsulta (após a minha resposta)",
@@ -1126,6 +1363,24 @@ function decide(d) {
 }
 function advance() {
   post("/api/advance", { project: projectId }).then(load).catch(function (e) { alert(e.message); });
+}
+function improve() {
+  // "Melhorar" não é uma etapa isolada: é uma nova passagem pelo ciclo com a
+  // tua direção à frente, preservando as decisões anteriores.
+  post("/api/advance", { project: projectId, direction: $("improveDir").value })
+    .then(load).catch(function (e) { alert(e.message); });
+}
+function concludeUI() { concluding = true; lastJson = ""; render(); }
+function cancelConclude() { concluding = false; lastJson = ""; render(); }
+function doConclude() {
+  post("/api/project/conclude", { project: projectId, note: $("cnote").value })
+    .then(function () { concluding = false; lastJson = ""; load(); })
+    .catch(function (e) { alert(e.message); });
+}
+function reopen() {
+  post("/api/project/reopen", { project: projectId })
+    .then(function () { lastJson = ""; load(); })
+    .catch(function (e) { alert(e.message); });
 }
 function note() {
   post("/api/note", { project: projectId, note: $("pnote").value })
