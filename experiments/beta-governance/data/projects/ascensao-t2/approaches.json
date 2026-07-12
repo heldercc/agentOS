@@ -1,0 +1,23 @@
+{
+  "_note": "The three angles the engine fans proposals across for this test cargo. The judge never sees which angle produced which proposal (sealed per-round mapping).",
+  "approaches": [
+    {
+      "id": "app-economy",
+      "title": "Economia — quietude e um só detalhe",
+      "tags": ["pacing"],
+      "hint": "Cut everything optional. Stillness carries the menace; prefer one strong element over three good ones; long holds, minimal cuts, silence as a weapon. Some things happen off-screen and are told by light and sound."
+    },
+    {
+      "id": "app-homage",
+      "title": "Homage — gramática clássica do género",
+      "tags": ["style", "camera"],
+      "hint": "Lean on the genre's proven grammar: dramatic low angles, speed lines, held impact frames, background abstracting into pure energy at the peak, triumphant hero hold. Familiar shapes executed cleanly — catharsis over menace."
+    },
+    {
+      "id": "app-physical",
+      "title": "Fisicalidade — peso e consequência",
+      "tags": ["impact", "sound"],
+      "hint": "Ground everything in weight and cost: feet plant, cloth tears, breath is audible, debris obeys mass, sound arrives late like real distance. No impact frames — the transformation reads as physical labor, not magic."
+    }
+  ]
+}

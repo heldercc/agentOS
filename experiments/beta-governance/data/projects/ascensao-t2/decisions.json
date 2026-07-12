@@ -1,0 +1,41 @@
+{
+  "_note": "Pre-registered corpus (ADR-0016 §4): these six decisions are the first cohort, fixed at commit time, before any round ran. New decisions enter a labelled second cohort, never silently this one.",
+  "decisions": [
+    {
+      "id": "d-buildup",
+      "title": "O gatilho e a quietude (0–2s)",
+      "instruction": "Propose the first two seconds: the emotional trigger and the dead stillness before anything moves. What is on screen, what the audience hears, and the single smallest detail that tells us something irreversible is about to happen. One paragraph plus a 3-line beat list with timings.",
+      "tags": ["pacing", "sound"]
+    },
+    {
+      "id": "d-eruption",
+      "title": "A erupção — o grito e a descarga (2–8s)",
+      "instruction": "Propose the eruption: how the scream starts, how the golden pillar ignites, how the ground and debris answer, and where the peak lands. Include exact timings, one impact-frame plan, and what is deliberately NOT shown. One paragraph plus a beat list.",
+      "tags": ["impact", "camera", "sound"]
+    },
+    {
+      "id": "d-signature",
+      "title": "A assinatura visual T2 (cabelo, relâmpagos, aura)",
+      "instruction": "Propose the visual rules that make this read as the SECOND tier and not the first: hair silhouette change, bio-electric arc frequency and lifetime, aura edge treatment, eye/pupil treatment, and the color discipline (what is allowed to glow). 5-8 concrete rules with numbers.",
+      "tags": ["style"]
+    },
+    {
+      "id": "d-camera",
+      "title": "Gramática de câmara e montagem (15s totais)",
+      "instruction": "Propose the shot list and editing grammar for the full 15 seconds: shot sizes, the camera moves you allow (and forbid), impact frames, hold durations, and the final cut. Fifteen seconds means discipline — state what is forbidden. Shot ladder plus rules.",
+      "tags": ["camera", "pacing"]
+    },
+    {
+      "id": "d-sound",
+      "title": "Desenho de som (sem música)",
+      "instruction": "Propose the sound timeline for the 15 seconds with no music: silence placement, pre-rumble, the scream treatment, lightning crack layers, the shockwave, and the post-transformation air-pressure tone. Timeline-aligned bullets with dB/Hz/timing specifics where they matter.",
+      "tags": ["sound", "impact"]
+    },
+    {
+      "id": "d-final",
+      "title": "Pose final e corte (13–15s)",
+      "instruction": "Propose the closing two seconds: the final silhouette, the light state, how long the hold lasts, the last sound, and how the cut to black lands relative to it. One paragraph plus exact frame counts for the final hold.",
+      "tags": ["pacing", "style"]
+    }
+  ]
+}
