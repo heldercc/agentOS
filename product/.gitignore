@@ -1,0 +1,13 @@
+# AgentOS provenance: origin=authored | producer=Copilot (Session 008) | status=shell scaffold
+node_modules/
+dist/
+*.log
+
+# workspace/ holds the Pilot's live projects — personal working data, not repo
+# doctrine. Evidence that must survive belongs to each project's own workspace;
+# the repo carries the shell, not the cargo.
+workspace/
+
+# mailbox is the transient human-in-the-middle bridge (ADR-0013) — prompts and
+# answers in flight, never evidence.
+mailbox/
