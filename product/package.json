@@ -10,7 +10,9 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "shell": "tsx src/cli/shell.ts",
-    "smoke": "tsx src/cli/smoke.ts"
+    "smoke": "tsx src/cli/smoke.ts",
+    "metrics": "tsx src/cli/metrics.ts",
+    "preload-guild": "tsx src/cli/preload-guild.ts"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

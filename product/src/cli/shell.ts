@@ -6,7 +6,7 @@
 // action per loop stage; everything below the authority line moves by itself.
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 
 import { readEvents } from "../evidence.js";
 import {
@@ -24,6 +24,7 @@ import {
   concludeProject,
   decideCandidate,
   decideSeedGoverned,
+  DEFAULT_EFFORT_PROFILE,
   getProject,
   initProject,
   listArtifacts,
@@ -45,24 +46,30 @@ import {
   runConsult,
   runDecisionSurface,
   runExecute,
-  saveMentorGoverned,
+  saveSenseiGoverned,
   selectOption,
+  setEffortProfile,
   stageOf,
   storyOf,
   topOpenQuestion,
 } from "../kernel.js";
 import {
   ensureImmutableProvenance,
+  ensureSenseiLibrary,
   listCandidates,
-  listMentors,
+  listSenseis,
   listSeeds,
   migrateLegacyExpertise,
+  senseiSanity,
+  senseiVictories,
 } from "../hi.js";
-import { iterationDir, MAILBOX_DIR, projectDir, WORKSPACE_DIR } from "../paths.js";
+import { iterationDir, MAILBOX_DIR, projectDir, workOrdersDir, WORKSPACE_DIR } from "../paths.js";
 import { resolveRuntime } from "../runtime.js";
-import { abs, readText, writeJson } from "../stores.js";
+import { abs, readJson, readText, writeJson } from "../stores.js";
+import type { EffortProfile, MeterRecord } from "../types.js";
 
-const PORT = 4900;
+/** PRODUCT_PORT lets a verification instance run beside the live :4900 shell. */
+const PORT = Number(process.env["PRODUCT_PORT"] ?? 4900);
 const RUNTIME_NAME = process.env["PRODUCT_RUNTIME"] ?? "cli";
 const runtime = resolveRuntime(RUNTIME_NAME, { mailboxDir: MAILBOX_DIR });
 
@@ -82,6 +89,15 @@ try {
   if (c > 0) console.log(`immutable provenance: corrected ${c} HI record(s)`);
 } catch (e) {
   console.error("immutable provenance correction failed:", e);
+}
+
+// The Sensei reform migration (parecer 2026-07-12 noite): mentors/ becomes
+// senseis/, crafts derive from pinned seeds, admitted seeds gain their owner.
+try {
+  const c = ensureSenseiLibrary();
+  if (c > 0) console.log(`sensei reform: migrated/corrected ${c} HI record(s)`);
+} catch (e) {
+  console.error("sensei reform migration failed:", e);
 }
 
 // ---------------------------------------------------------------------------
@@ -112,7 +128,12 @@ function startOp(projectId: string, op: string, work: () => Promise<void>): bool
 // ---------------------------------------------------------------------------
 // Planned calls per operation — feeds the probe so the estimate is honest.
 
-function plannedCalls(projectId: string, op: string, level: EffortLevel): number {
+function plannedCalls(
+  projectId: string,
+  op: string,
+  level: EffortLevel,
+  optionsCount?: number,
+): number {
   const spec = effortSpec(level);
   const roster = readRoster(projectId);
   if (op === "consult") {
@@ -124,10 +145,42 @@ function plannedCalls(projectId: string, op: string, level: EffortLevel): number
     return roster ? Math.min(roster.agents.length, spec.maxAgents) : spec.maxAgents;
   }
   if (op === "decision") {
-    const options = Math.max(2, Math.min(spec.maxAgents, 4));
+    const options = optionsCount
+      ? Math.max(2, Math.min(4, optionsCount))
+      : Math.max(2, Math.min(spec.maxAgents, 4));
     return options + (level === "minimal" ? 0 : 1); // +1 for the recommendation
   }
   return 1;
+}
+
+// ---------------------------------------------------------------------------
+// Ponto I — tokens and time must be EVIDENT: the real meters of the current
+// iteration, summed from disk on every poll, so the Pilot watches the spend
+// grow while the system thinks.
+
+function iterationMeters(projectId: string, iteration: number): {
+  workOrders: number;
+  tokens: number;
+  durationMs: number;
+  estimated: boolean;
+} {
+  const dir = workOrdersDir(projectId, iteration);
+  let workOrders = 0;
+  let tokens = 0;
+  let durationMs = 0;
+  let estimated = false;
+  if (existsSync(dir)) {
+    for (const wo of readdirSync(dir)) {
+      const p = abs(dir, wo, "meter.json");
+      if (!existsSync(p)) continue;
+      const m = readJson<MeterRecord>(p);
+      workOrders += 1;
+      tokens += m.inputTokens + m.outputTokens;
+      durationMs += m.durationMs;
+      if (m.estimated) estimated = true;
+    }
+  }
+  return { workOrders, tokens, durationMs, estimated };
 }
 
 // ---------------------------------------------------------------------------
@@ -152,6 +205,9 @@ function stateView(projectId: string): unknown {
     stage,
     runtime: RUNTIME_NAME,
     autoMaxLevel: AUTO_MAX_LEVEL,
+    effortProfile: project.effortProfile ?? DEFAULT_EFFORT_PROFILE,
+    /** Ponto I: the iteration's real spend, visible and growing. */
+    meters: iterationMeters(projectId, project.iteration),
     levels: EFFORT_LEVELS.map((l) => {
       const s = effortSpec(l);
       return {
@@ -213,6 +269,15 @@ function asLevel(v: string | undefined): EffortLevel {
   return EFFORT_LEVELS.includes(v as EffortLevel) ? (v as EffortLevel) : "low";
 }
 
+/** The per-phase effort profile from a request body (ponto D). */
+function profileFrom(b: Record<string, string>): EffortProfile {
+  return {
+    questions: asLevel(b["effortQuestions"]),
+    options: asLevel(b["effortOptions"]),
+    execution: asLevel(b["effortExecution"]),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Routes.
 
@@ -264,8 +329,15 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
       json(res, 400, { error: "nome e descrição são obrigatórios" });
       return;
     }
-    const project = initProject(b["name"], b["description"]);
+    const project = initProject(b["name"], b["description"], false, profileFrom(b));
     json(res, 200, { id: project.id });
+    return;
+  }
+  if (req.method === "POST" && url.pathname === "/api/project/effort") {
+    const b = await body(req);
+    if (!guardActive(b["project"] ?? "", res)) return;
+    const project = setEffortProfile(b["project"] ?? "", profileFrom(b));
+    json(res, 200, { effortProfile: project.effortProfile });
     return;
   }
   if (req.method === "GET" && url.pathname === "/api/state") {
@@ -279,11 +351,12 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
   if (req.method === "GET" && url.pathname === "/api/probe") {
     const level = asLevel(q("level"));
     const project = getProject(q("project"));
+    const optionsCount = q("options") ? Number(q("options")) : undefined;
     json(res, 200, {
       probe: probeEffort({
         workspaceDir: WORKSPACE_DIR,
         level,
-        plannedCalls: plannedCalls(project.id, q("op") || "execute", level),
+        plannedCalls: plannedCalls(project.id, q("op") || "execute", level, optionsCount),
         priorIterations: project.iteration - 1,
       }),
       spec: effortSpec(level),
@@ -295,10 +368,23 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     return;
   }
   if (req.method === "GET" && url.pathname === "/api/hi") {
+    // Senseis carry their telemetry-derived rank (ponto C) and their
+    // active-vs-photo sanity (ponto F2) — the library is inspectable, whole.
+    const senseis = listSenseis()
+      .map((m) => {
+        const sanity = senseiSanity(m);
+        return {
+          ...m,
+          victories: senseiVictories(m.id),
+          graduation: sanity.graduation,
+          sanity,
+        };
+      })
+      .sort((a, b) => b.victories.length - a.victories.length);
     json(res, 200, {
       seeds: listSeeds(),
       candidates: listCandidates(),
-      mentors: listMentors(),
+      senseis,
     });
     return;
   }
@@ -315,6 +401,7 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
       domains: (b["domains"] ?? "").split(",").map((t) => t.trim()).filter((t) => t !== ""),
       projectLocal: b["reach"] === "project",
       provenanceNote: "registada à mão na Biblioteca de Inteligência Humana",
+      ...(b["sensei"]?.trim() ? { sensei: b["sensei"].trim() } : {}),
     });
     json(res, 200, { id: seed.id });
     return;
@@ -326,6 +413,8 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
       b["seedId"] ?? "",
       b["decision"] === "admit" ? "admit" : "reject",
       b["editedRule"]?.trim() || undefined,
+      false,
+      b["senseiId"]?.trim() || undefined,
     );
     json(res, 200, { ok: true });
     return;
@@ -352,20 +441,21 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     json(res, 200, { ok: true });
     return;
   }
-  if (req.method === "POST" && url.pathname === "/api/hi/mentor") {
+  if (req.method === "POST" && url.pathname === "/api/hi/sensei") {
     const b = await body(req);
     if (!b["title"]?.trim()) {
-      json(res, 400, { error: "o Mentor precisa de um nome" });
+      json(res, 400, { error: "o Sensei precisa de um nome" });
       return;
     }
-    const mentor = saveMentorGoverned(b["project"] ?? "", {
+    const sensei = saveSenseiGoverned(b["project"] ?? "", {
       ...(b["id"]?.trim() ? { id: b["id"].trim() } : {}),
       title: b["title"],
       persona: b["persona"] ?? "",
+      domains: (b["domains"] ?? "").split(",").map((d) => d.trim()).filter((d) => d !== ""),
       seedIds: (b["seedIds"] ?? "").split(",").map((s) => s.trim()).filter((s) => s !== ""),
       selectionNotes: (b["notes"] ?? "").split("\n").map((n) => n.trim()).filter((n) => n !== ""),
     });
-    json(res, 200, { id: mentor.id, version: mentor.version });
+    json(res, 200, { id: sensei.id, version: sensei.version });
     return;
   }
   if (req.method === "POST" && url.pathname === "/api/option/refine") {
@@ -422,13 +512,19 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const op = b["op"] ?? "";
     const level = asLevel(b["level"]);
     const project = getProject(projectId);
+    const optionsCount = b["options"] ? Number(b["options"]) : undefined;
     const work = async (): Promise<void> => {
       if (op === "consult") {
         await runConsult({ projectId, level, runtime });
       } else if (op === "candidate") {
         await runCandidate({ projectId, level, runtime });
       } else if (op === "decision") {
-        await runDecisionSurface({ projectId, level, runtime });
+        await runDecisionSurface({
+          projectId,
+          level,
+          runtime,
+          ...(optionsCount ? { optionsCount } : {}),
+        });
       } else if (op === "execute") {
         const estimate = probeEffort({
           workspaceDir: WORKSPACE_DIR,
@@ -711,10 +807,22 @@ function renderHome() {
   fetch("/api/projects").then(function (r) { return r.json(); }).then(function (data) {
     var h = '<h1>AgentOS</h1><div class="sub">Declara a intenção. O sistema digere. ' +
       'Tu governas. <span class="badge">runtime: ' + esc(data.runtime) + '</span></div>';
+    function homeLevelSelect(id) {
+      var h2 = '<select id="' + id + '">';
+      ["minimal", "low", "balanced", "high", "maximum"].forEach(function (l) {
+        h2 += '<option value="' + l + '"' + (l === "low" ? " selected" : "") + ">" + l + "</option>";
+      });
+      return h2 + "</select>";
+    }
     h += '<div class="card"><h2>Novo projeto</h2>' +
       '<label>Nome</label><input id="pname" placeholder="O nome do projeto">' +
       '<label>O que queres? (texto livre — a intenção fundadora)</label>' +
       '<textarea id="pdesc" placeholder="Descreve o que queres que exista no fim…"></textarea>' +
+      '<details style="margin-top:8px"><summary class="kv">Perfil de esforço por fase (opcional — por defeito tudo "low"; podes mudar a qualquer momento)</summary>' +
+      '<div class="row" style="margin-top:6px">' +
+      '<div class="grow"><label>Perguntas</label>' + homeLevelSelect("nefq") + "</div>" +
+      '<div class="grow"><label>Opções</label>' + homeLevelSelect("nefo") + "</div>" +
+      '<div class="grow"><label>Execução</label>' + homeLevelSelect("nefe") + "</div></div></details>" +
       '<div style="margin-top:12px"><button onclick="createProject()">Criar projeto</button></div>' +
       '<div class="err" id="cerr"></div></div>';
     if (data.projects.length) {
@@ -742,7 +850,10 @@ function renderHome() {
   });
 }
 function createProject() {
-  post("/api/project", { name: $("pname").value, description: $("pdesc").value })
+  post("/api/project", { name: $("pname").value, description: $("pdesc").value,
+    effortQuestions: $("nefq") ? $("nefq").value : "low",
+    effortOptions: $("nefo") ? $("nefo").value : "low",
+    effortExecution: $("nefe") ? $("nefe").value : "low" })
     .then(function (r) { location.search = "?p=" + r.id; })
     .catch(function (e) { $("cerr").textContent = e.message; });
 }
@@ -766,15 +877,30 @@ function load() {
     .catch(function () { /* poll again */ });
 }
 
+// Ponto D — cada operação pertence a uma fase; o perfil do projeto dá o
+// default, o slider continua a poder fazer override pontual.
+function phaseOf(op) {
+  if (op === "execute") return "execution";
+  if (op === "decision" || op === "candidate") return "options";
+  return "questions";
+}
+function levelFor(op) {
+  return levelChosen || (state.effortProfile && state.effortProfile[phaseOf(op)]) || "low";
+}
 function levelSelector(op) {
-  var lv = levelChosen || "low";
+  var lv = levelFor(op);
   var idx = state.levels.map(function (l) { return l.level; }).indexOf(lv);
   var spec = state.levels[idx];
-  return '<label>Esforço — controla modelo, nº de agentes, contexto e retries</label>' +
+  return '<label>Esforço — o teu perfil define a fase; o slider faz override pontual</label>' +
     '<div class="row"><input type="range" min="0" max="4" step="1" value="' + idx + '" class="grow" ' +
     'oninput="setLevel(this.value, \\'' + op + '\\')">' +
-    '<span class="badge acc">' + esc(lv) + " · " + esc(spec.workerModel) + "</span></div>" +
+    '<span class="badge acc">' + esc(lv) + " · " + esc(spec.workerModel) + "</span>" +
+    (levelChosen ? "" : '<span class="badge">perfil: ' + esc(phaseLabel(phaseOf(op))) + "</span>") +
+    "</div>" +
     '<div class="probe" id="probe">a estimar…</div>';
+}
+function phaseLabel(ph) {
+  return ph === "questions" ? "perguntas" : ph === "options" ? "opções" : "execução";
 }
 function setLevel(idx, op) {
   levelChosen = state.levels[Number(idx)].level;
@@ -783,8 +909,10 @@ function setLevel(idx, op) {
 }
 function loadProbe(op) {
   if (!$("probe")) return;
+  var extra = "";
+  if (op === "decision" && $("optcount")) extra = "&options=" + $("optcount").value;
   fetch("/api/probe?project=" + encodeURIComponent(projectId) + "&level=" +
-    (levelChosen || "low") + "&op=" + op)
+    levelFor(op) + "&op=" + op + extra)
     .then(function (r) { return r.json(); })
     .then(function (d) {
       var p = d.probe;
@@ -796,6 +924,24 @@ function loadProbe(op) {
         "<br>" + esc(p.expectedQuality);
     });
 }
+
+// Ponto I — tempo e tokens visíveis enquanto o sistema pensa.
+function elapsedSince(iso) {
+  var s = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+  var m = Math.floor(s / 60);
+  return m > 0 ? m + "m" + String(s % 60).padStart(2, "0") + "s" : s + "s";
+}
+function metersLine(s) {
+  if (!s.meters || !s.meters.workOrders) return "";
+  return '<div class="kv" style="margin-top:6px">Esta passagem: <b>' +
+    s.meters.tokens.toLocaleString() + "</b> tokens" +
+    (s.meters.estimated ? " (estimados)" : "") + " em <b>" + s.meters.workOrders +
+    "</b> work orders · <b>" + Math.round(s.meters.durationMs / 1000) + "s</b> de modelo</div>";
+}
+setInterval(function () {
+  var el = $("elapsed");
+  if (el && state && state.busy) el.textContent = elapsedSince(state.busy.startedAt);
+}, 1000);
 
 // O cartão dominante: UMA área que diz o que precisa do utilizador agora.
 // Azul = ação para lançar; âmbar = decisão humana pendente; verde = concluído.
@@ -844,10 +990,13 @@ function primaryCard() {
       '<div style="margin-top:12px"><button class="ghost" onclick="reopen()">Reabrir projeto</button></div>');
   }
   if (s.busy) {
+    // Ponto I: pensar custa e isso deve ser EVIDENTE — cronómetro a andar e
+    // os tokens reais da passagem a crescer a cada work order concluída.
     return primary("wait", "Não precisas de fazer nada",
       '<div class="spin">⏳ ' + esc(BUSY_HUMAN[s.busy.op] || s.busy.op) +
-      " — desde " + esc(s.busy.startedAt.slice(11, 19)) +
-      '</div><div class="kv" style="margin-top:6px">O sistema move por baixo; tu decides quando ele voltar.</div>');
+      ' — há <b id="elapsed">' + elapsedSince(s.busy.startedAt) + "</b></div>" +
+      metersLine(s) +
+      '<div class="kv" style="margin-top:6px">O sistema move por baixo; tu decides quando ele voltar.</div>');
   }
   if (s.stage === "consult") {
     h = primary("act", s.roster ? "Voltar a pôr a equipa a compreender" : "Pôr a equipa a compreender a tua intenção",
@@ -874,6 +1023,10 @@ function primaryCard() {
       (rej ? "Rejeitaste a proposta anterior — o sistema reconstrói com a tua nota." :
         "Sem perguntas em aberto. Pede opções concretas para escolheres, ou condensa já o estado do projeto.") +
       "</div>" + levelSelector("candidate") +
+      '<label>Quantas opções na mesa? (cada opção extra custa 1 chamada — o probe mostra)</label>' +
+      '<select id="optcount" style="width:auto" onchange="loadProbe(\\'decision\\')">' +
+      '<option value="2">2 opções</option><option value="3" selected>3 opções</option>' +
+      '<option value="4">4 opções</option></select>' +
       '<div class="row" style="margin-top:12px">' +
       '<button onclick="op(\\'decision\\')">Quero opções para escolher</button>' +
       '<button class="ghost" onclick="op(\\'candidate\\')">Condensar já o estado</button></div>');
@@ -932,8 +1085,14 @@ function decisionSurfaceCard(ds) {
       esc(ds.recommendation.optionId) + " — " + esc(ds.recommendation.reason) + "</div></div>";
   }
   latestOptions(ds).forEach(function (o) {
-    var mentors = {};
-    (o.seeds || []).forEach(function (s) { if (s.mentorTitle) mentors[s.mentorTitle] = true; });
+    // Ponto C: proveniência EVIDENTE — quem sugeriu esta opção; se a
+    // escolheres, é esse Sensei que ganha a vitória e evolui.
+    var voices = {};
+    if (o.senseiTitle) voices[o.senseiTitle] = true;
+    (o.seeds || []).forEach(function (s) {
+      var t = s.senseiTitle || s.mentorTitle;
+      if (t) voices[t] = true;
+    });
     var rec = ds.recommendation && ds.recommendation.optionId === o.id;
     h += '<div class="card"' + (rec ? ' style="border-color:var(--acc)"' : "") + ">" +
       "<h2>" + esc(o.title) + (rec ? " ★" : "") +
@@ -943,12 +1102,14 @@ function decisionSurfaceCard(ds) {
       (o.benefits ? '<div class="kv" style="margin-top:6px">A favor: ' + esc(o.benefits) + "</div>" : "") +
       (o.tradeoffs ? '<div class="kv">Atenção: ' + esc(o.tradeoffs) + "</div>" : "") +
       (o.refinement ? '<div class="kv">Refinamento aplicado: "' + esc(o.refinement) + '"</div>' : "");
-    if (Object.keys(mentors).length) {
+    if (Object.keys(voices).length) {
       h += "<div style='margin-top:6px'>";
-      Object.keys(mentors).forEach(function (m) {
-        h += '<span class="xchip">🎬 Mentor: ' + esc(m) + "</span>";
+      Object.keys(voices).forEach(function (m) {
+        h += '<span class="xchip" title="se escolheres esta opção, a vitória evolui este Sensei">🥋 Sensei: ' + esc(m) + "</span>";
       });
       h += "</div>";
+    } else {
+      h += '<div class="kv" style="margin-top:6px">voz genérica do sistema — sem Sensei, sem vitória a atribuir</div>';
     }
     (o.seeds || []).forEach(function (s) {
       h += '<span class="xchip" title="' + esc(s.reason) + '">🧠 ' + esc(s.id) + " v" + s.version + "</span>";
@@ -1020,7 +1181,7 @@ function render() {
   if (focus && $(focus)) $(focus).focus();
   if (view === "agora" && !isConcluded(s.project)) {
     if (s.stage === "consult") loadProbe("consult");
-    if (s.stage === "candidate") loadProbe("candidate");
+    if (s.stage === "candidate") loadProbe("decision");
     if (s.stage === "execute") loadProbe("execute");
   }
 }
@@ -1044,8 +1205,9 @@ function agoraBody(s) {
       if (a.seeds && a.seeds.length) {
         h += "<div>";
         a.seeds.forEach(function (x) {
+          var voice = x.senseiTitle || x.mentorTitle;
           h += '<span class="xchip" title="' + esc(x.reason) + '">🧠 ' + esc(x.title) + " v" + x.version +
-            (x.mentorTitle ? " · " + esc(x.mentorTitle) : "") + "</span>";
+            (voice ? " · 🥋 " + esc(voice) : "") + "</span>";
         });
         h += '<span class="kv" style="font-size:11px"> inteligência humana que moldou este resultado</span></div>';
       }
@@ -1074,20 +1236,45 @@ function agoraBody(s) {
       '<div class="kv">A tua nota entra no contexto de todo o trabalho seguinte.</div>' +
       '<div class="row" style="margin-top:8px"><input id="pnote" class="grow" placeholder="ex.: mantém tudo em PT-PT">' +
       '<button class="ghost" onclick="note()">Registar</button></div></div>';
+    // Ponto D: a estratégia de esforço é do utilizador — um perfil por fase,
+    // editável a qualquer momento; o slider por lançamento faz o override.
+    var ep = s.effortProfile || { questions: "low", options: "low", execution: "low" };
+    h += '<div class="card"><details><summary>Perfil de esforço por fase — perguntas <b>' +
+      esc(ep.questions) + "</b> · opções <b>" + esc(ep.options) + "</b> · execução <b>" +
+      esc(ep.execution) + "</b></summary>" +
+      '<div class="kv" style="margin-top:6px">"Um modelo melhor a planear e um pior a executar, ou vice-versa" — a estratégia é tua. ' +
+      "As re-consultas automáticas usam o nível de Perguntas.</div>" +
+      '<div class="row" style="margin-top:8px">' +
+      '<div class="grow"><label>Perguntas (consultas, re-consultas, refinamentos)</label>' + levelSelect("efq", ep.questions) + "</div>" +
+      '<div class="grow"><label>Opções (superfícies de decisão, síntese)</label>' + levelSelect("efo", ep.options) + "</div>" +
+      '<div class="grow"><label>Execução (criar)</label>' + levelSelect("efe", ep.execution) + "</div></div>" +
+      '<div style="margin-top:10px"><button class="ghost" onclick="saveProfile()">Guardar perfil</button></div>' +
+      "</details></div>";
   }
   return h;
+}
+
+function levelSelect(id, current) {
+  var h = '<select id="' + id + '">';
+  state.levels.forEach(function (l) {
+    h += '<option value="' + esc(l.level) + '"' + (l.level === current ? " selected" : "") + ">" +
+      esc(l.level) + " · " + esc(l.workerModel) + "</option>";
+  });
+  return h + "</select>";
 }
 
 // Detalhes / Auditoria: runtime, etapa interna, agentes, work orders, eventos —
 // tudo inspecionável, nada disto é linguagem principal.
 function auditBody(s) {
+  var ep = s.effortProfile || {};
   var h = '<div class="card"><h2>Sistema</h2><div class="kv">' +
     "runtime <b>" + esc(s.runtime) + "</b> · etapa interna <b>" + esc(s.stage) + "</b>" +
     " · autoridade automática ≤ <b>" + esc(s.autoMaxLevel) + "</b>" +
+    " · perfil de esforço <b>" + esc(ep.questions || "?") + "/" + esc(ep.options || "?") + "/" + esc(ep.execution || "?") + "</b>" +
     " · iteração <b>" + s.project.iteration + "</b>" +
     " · estado <b>" + esc(s.project.status || "active") + "</b>" +
     (s.busy ? ' · em curso: <b>' + esc(s.busy.op) + "</b> desde " + esc(s.busy.startedAt.slice(11, 19)) : "") +
-    "</div></div>";
+    "</div>" + metersLine(s) + "</div>";
   if (s.roster) {
     h += '<div class="card"><h2>Agentes temporários</h2>' +
       '<div class="kv">Vasos operacionais, não personalidades: mandato + contexto + expertise admitida ' +
@@ -1144,7 +1331,10 @@ var LBL = {
   seed_evidence: "A minha evidência voltou à GuruSeed",
   seed_revised: "Revi uma GuruSeed — nova versão, a anterior fica na história",
   context_sufficient: "Declarei o contexto suficiente — perguntas adiadas",
-  mentor_saved: "Mentor guardado/evoluído",
+  mentor_saved: "Mentor guardado/evoluído (pré-reforma)",
+  sensei_saved: "Sensei guardado/evoluído",
+  sensei_victory: "Vitória de um Sensei — a escolha evoluiu quem a sugeriu",
+  effort_profile_set: "Defini o perfil de esforço por fase",
   decision_opened: "Superfície de decisão aberta",
   option_refined: "Refinei uma opção",
   option_selected: "Selecionei uma opção"
@@ -1200,9 +1390,14 @@ function loadStory() {
 }
 
 // ---------------- inteligência humana (o ativo durável) ----------------
+function senseiTitleOf(id) {
+  var m = hiData && hiData.senseis.filter(function (x) { return x.id === id; })[0];
+  return m ? m.title : id;
+}
 function seedCard(s, isCandidate) {
   var scope = (s.scope.projects.length ? "local: " + s.scope.projects.join(", ") : "reutilizável") +
-    (s.scope.domains.length ? " · domínios: " + s.scope.domains.join(", ") : " · universal");
+    (s.scope.domains.length ? " · domínios: " + s.scope.domains.join(", ") : "") +
+    (s.sensei ? " · 🥋 " + esc(senseiTitleOf(s.sensei)) : " · sem Sensei (atribui ao admitir)");
   var h = '<div class="xp"><b>🧠 ' + esc(s.title) + '</b><span class="st ' + esc(s.status) + '">' +
     esc(s.status) + " v" + s.version + '</span> <span class="kv">' + esc(scope) + "</span>" +
     "<div style='margin-top:4px'>" + esc(s.rule) + "</div>" +
@@ -1236,8 +1431,15 @@ function seedCard(s, isCandidate) {
       '<button class="danger" onclick="seedEvidence(\\'' + esc(s.id) + '\\',\\'contradicting\\')">Contradisse ✗</button></div>';
   }
   if (isCandidate) {
+    var senseiSel = '<select id="sn-' + esc(s.id) + '" style="width:auto">';
+    (hiData ? hiData.senseis : []).forEach(function (m) {
+      senseiSel += '<option value="' + esc(m.id) + '"' + (s.sensei === m.id ? " selected" : "") + ">" +
+        esc(m.title) + "</option>";
+    });
+    senseiSel += "</select>";
     h += '<label>Editar a regra antes de admitir (opcional — a última palavra é tua)</label>' +
       '<textarea id="ed-' + esc(s.id) + '">' + esc(s.rule) + "</textarea>" +
+      '<label>Sensei dono — uma seed pertence a exatamente UM Sensei</label>' + senseiSel +
       '<div class="row" style="margin-top:8px">' +
       '<button onclick="decideSeed(\\'' + esc(s.id) + '\\',\\'admit\\')">Admitir</button>' +
       '<button class="danger" onclick="decideSeed(\\'' + esc(s.id) + '\\',\\'reject\\')">Rejeitar</button></div>';
@@ -1245,18 +1447,41 @@ function seedCard(s, isCandidate) {
   return h + "</div>";
 }
 
-function mentorCard(m, seeds) {
+// O cartão do Sensei — a entidade que evolui: vitórias, graduação (faixa),
+// e a sanidade face à fotografia de referência (base/), quando existe.
+function senseiCard(m, seeds) {
   var byId = {};
   seeds.forEach(function (s) { byId[s.id] = s; });
-  var h = '<div class="xp"><b>🎬 ' + esc(m.title) + '</b><span class="st admitted">v' + m.version + "</span>" +
-    '<div class="kv">' + esc(m.persona) + "</div><div style='margin-top:4px'>";
-  m.seeds.forEach(function (p) {
-    var s = byId[p.id];
-    h += '<span class="xchip" title="' + esc(s ? s.rule : "") + '">🧠 ' + esc(s ? s.title : p.id) + "</span>";
+  var owned = seeds.filter(function (s) { return s.sensei === m.id; });
+  var h = '<div class="xp"><b>🥋 ' + esc(m.title) + '</b><span class="st admitted">v' + m.version + "</span>" +
+    ' <span class="badge acc">' + esc(m.graduation) + " · " + m.victories.length + " vitória(s)</span>" +
+    '<div class="kv">' + esc(m.persona) +
+    (m.domains && m.domains.length ? " · ofício: " + esc(m.domains.join(", ")) : "") +
+    "</div><div style='margin-top:4px'>";
+  owned.forEach(function (s) {
+    h += '<span class="xchip" title="' + esc(s.rule) + '">🧠 ' + esc(s.title) + "</span>";
   });
-  h += "</div>" + (m.selection_notes.length ?
+  if (!owned.length) h += '<span class="kv">ainda sem seeds próprias</span>';
+  h += "</div>";
+  if (m.victories.length) {
+    h += "<details><summary class='kv'>as vitórias que o fizeram evoluir</summary><div class='kv'>";
+    m.victories.forEach(function (v) {
+      h += "🏆 " + esc(v.ts.slice(0, 16).replace("T", " ")) + " · " + esc(v.project) +
+        " · " + esc(v.decision.slice(0, 80)) + "<br>";
+    });
+    h += "</div></details>";
+  }
+  if (m.sanity && m.sanity.hasBase) {
+    var sa = m.sanity;
+    h += '<div class="kv" style="margin-top:4px">Sanidade vs fotografia: base v' + sa.baseVersion +
+      " → atual v" + sa.currentVersion +
+      (sa.seedsAdded.length ? " · aprendeu: " + esc(sa.seedsAdded.join(", ")) : "") +
+      (sa.seedsRemoved.length ? " · <span style='color:var(--warn)'>perdeu: " + esc(sa.seedsRemoved.join(", ")) + "</span>" : "") +
+      (sa.seedsAdded.length || sa.seedsRemoved.length ? "" : " · fiel à base") + "</div>";
+  }
+  h += (m.selection_notes.length ?
     '<div class="kv">notas: ' + esc(m.selection_notes.join(" · ")) + "</div>" : "") +
-    '<div class="row" style="margin-top:8px"><button class="ghost" onclick="editMentor(\\'' +
+    '<div class="row" style="margin-top:8px"><button class="ghost" onclick="editSensei(\\'' +
     esc(m.id) + '\\')">Editar / evoluir</button></div></div>';
   return h;
 }
@@ -1269,23 +1494,26 @@ function loadHi() {
       hiData = d;
       var box = $("viewbox");
       if (!box || view !== "hi") return;
-      var h = '<div class="card"><h2>Mentores — julgamento humano com nome</h2>' +
-        '<div class="kv">Um Mentor não é um agente de IA: é a TUA inteligência composta ' +
-        "(GuruSeeds) que os papéis temporários carregam. Constróis, evoluis, e nas decisões " +
-        "vês qual Mentor sugeriu o quê.</div><div style='margin-top:8px'>" +
-        (d.mentors.length ? d.mentors.map(function (m) { return mentorCard(m, d.seeds); }).join("") :
-          '<div class="kv">ainda sem mentores — cria o primeiro em baixo.</div>') + "</div>" +
-        '<details id="mform"><summary style="color:var(--acc);cursor:pointer;margin-top:8px">Criar / editar Mentor</summary>' +
+      var h = '<div class="card"><h2>Senseis — o dojo do teu julgamento</h2>' +
+        '<div class="kv">Um Sensei não é um agente de IA: é o perito com nome de UM ofício, ' +
+        "dono das suas GuruSeeds. Quando escolhes uma opção que ele sugeriu, a vitória volta " +
+        "para ele — evolui de faixa com o uso, como um lutador que ganha. Ranking por vitórias.</div>" +
+        "<div style='margin-top:8px'>" +
+        (d.senseis.length ? d.senseis.map(function (m) { return senseiCard(m, d.seeds); }).join("") :
+          '<div class="kv">ainda sem Senseis — cria o primeiro em baixo.</div>') + "</div>" +
+        '<details id="mform"><summary style="color:var(--acc);cursor:pointer;margin-top:8px">Criar / editar Sensei</summary>' +
         '<input type="hidden" id="mid">' +
-        '<label>Nome (ex.: Realizador de Ação Contida)</label><input id="mt">' +
+        '<label>Nome (ex.: Sensei da Cozinha)</label><input id="mt">' +
         '<label>Persona — a voz, numa linha</label><input id="mp" placeholder="ex.: contenção antes do impacto; consequência física antes do espetáculo">' +
-        '<label>GuruSeeds que compõem este Mentor</label><div id="mseeds">' +
+        '<label>Ofício — domínios que serve (vírgulas; são o que o convoca aos papéis)</label>' +
+        '<input id="md" placeholder="ex.: culinaria, cozinha">' +
+        '<label>GuruSeeds que este Sensei carrega</label><div id="mseeds">' +
         d.seeds.filter(function (s) { return s.status === "admitted"; }).map(function (s) {
           return '<label style="display:flex;gap:6px;align-items:center;margin:2px 0"><input type="checkbox" ' +
             'value="' + esc(s.id) + '" style="width:auto"> ' + esc(s.title) + "</label>";
         }).join("") + "</div>" +
         '<label>Notas de seleção (uma por linha)</label><textarea id="mn"></textarea>' +
-        '<div style="margin-top:10px"><button onclick="saveMentor()">Guardar Mentor</button></div></details></div>';
+        '<div style="margin-top:10px"><button onclick="saveSensei()">Guardar Sensei</button></div></details></div>';
 
       var candidates = d.candidates;
       h += '<div class="card"><h2>Candidatas — à espera do teu julgamento</h2>' +
@@ -1296,11 +1524,16 @@ function loadHi() {
         (d.seeds.length ? d.seeds.map(function (s) { return seedCard(s, false); }).join("") :
           '<div class="kv">vazia — a biblioteca cresce com o teu julgamento, não com transcrições.</div>') + "</div>";
 
+      var seedSenseiSel = '<select id="ss">' + d.senseis.map(function (m) {
+        return '<option value="' + esc(m.id) + '">' + esc(m.title) + "</option>";
+      }).join("") + "</select>";
       h += '<div class="card"><h2>Registar GuruSeed à mão</h2>' +
         '<label>Título</label><input id="st">' +
         '<label>A regra (o julgamento, nas tuas palavras)</label><textarea id="sr"></textarea>' +
         '<label>Porquê</label><input id="sw">' +
-        '<div class="row"><div class="grow"><label>Domínios (vírgulas; vazio = universal)</label><input id="sd"></div>' +
+        '<div class="row"><div class="grow"><label>Sensei dono</label>' +
+        (d.senseis.length ? seedSenseiSel : '<span class="kv">cria primeiro um Sensei</span>') + "</div>" +
+        '<div class="grow"><label>Domínios (vírgulas)</label><input id="sd"></div>' +
         '<div><label>Alcance</label><select id="sc"><option value="reusable">reutilizável</option>' +
         '<option value="project">só este projeto</option></select></div></div>' +
         '<div style="margin-top:10px"><button onclick="addSeed()">Registar candidata</button></div></div>';
@@ -1309,12 +1542,15 @@ function loadHi() {
 }
 function addSeed() {
   post("/api/hi/seed", { project: projectId, title: $("st").value, rule: $("sr").value,
-    why: $("sw").value, domains: $("sd").value, reach: $("sc").value })
+    why: $("sw").value, domains: $("sd").value, reach: $("sc").value,
+    sensei: $("ss") ? $("ss").value : "" })
     .then(loadHi).catch(function (e) { alert(e.message); });
 }
 function decideSeed(id, d) {
   var edited = $("ed-" + id) ? $("ed-" + id).value : "";
-  post("/api/hi/seed/decide", { project: projectId, seedId: id, decision: d, editedRule: edited })
+  var sensei = $("sn-" + id) ? $("sn-" + id).value : "";
+  post("/api/hi/seed/decide", { project: projectId, seedId: id, decision: d,
+    editedRule: edited, senseiId: sensei })
     .then(loadHi).catch(function (e) { alert(e.message); });
 }
 function seedEvidence(id, kind) {
@@ -1322,30 +1558,41 @@ function seedEvidence(id, kind) {
   post("/api/hi/seed/evidence", { project: projectId, seedId: id, kind: kind, note: n ? n.value : "" })
     .then(loadHi).catch(function (e) { alert(e.message); });
 }
-function editMentor(id) {
-  var m = hiData && hiData.mentors.filter(function (x) { return x.id === id; })[0];
+function editSensei(id) {
+  var m = hiData && hiData.senseis.filter(function (x) { return x.id === id; })[0];
   if (!m) return;
   $("mform").open = true;
   $("mid").value = m.id;
   $("mt").value = m.title;
   $("mp").value = m.persona;
+  $("md").value = (m.domains || []).join(", ");
   $("mn").value = m.selection_notes.join("\\n");
   var pinned = {};
   m.seeds.forEach(function (p) { pinned[p.id] = true; });
   document.querySelectorAll("#mseeds input").forEach(function (cb) { cb.checked = !!pinned[cb.value]; });
   $("mt").focus();
 }
-function saveMentor() {
+function saveSensei() {
   var ids = [];
   document.querySelectorAll("#mseeds input").forEach(function (cb) { if (cb.checked) ids.push(cb.value); });
-  post("/api/hi/mentor", { project: projectId, id: $("mid").value, title: $("mt").value,
-    persona: $("mp").value, seedIds: ids.join(","), notes: $("mn").value })
+  post("/api/hi/sensei", { project: projectId, id: $("mid").value, title: $("mt").value,
+    persona: $("mp").value, domains: $("md").value, seedIds: ids.join(","), notes: $("mn").value })
     .then(loadHi).catch(function (e) { alert(e.message); });
 }
 
 function op(name) {
-  post("/api/op", { project: projectId, op: name, level: levelChosen || "low" })
-    .then(load).catch(function (e) { alert(e.message); });
+  var payload = { project: projectId, op: name, level: levelFor(name) };
+  if (name === "decision" && $("optcount")) payload.options = $("optcount").value;
+  post("/api/op", payload)
+    .then(function () { levelChosen = null; load(); })
+    .catch(function (e) { alert(e.message); });
+}
+function saveProfile() {
+  post("/api/project/effort", { project: projectId,
+    effortQuestions: $("efq").value, effortOptions: $("efo").value,
+    effortExecution: $("efe").value })
+    .then(function () { levelChosen = null; lastJson = ""; load(); })
+    .catch(function (e) { alert(e.message); });
 }
 function answer(qid) {
   post("/api/answer", { project: projectId, questionId: qid, answer: $("answer").value })

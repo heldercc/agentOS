@@ -1,96 +1,85 @@
-// The Seed Resolver (Foundation Architecture; ADR-0020 §2): for every Work
-// Order, select the applicable GuruSeeds — admitted only, scoped by domain
-// and project — and say WHY each was selected and WHICH Mentor carries it.
-// The Kernel never copies the library; it schedules the necessary judgement.
+// The Seed Resolver (Foundation Architecture; ADR-0020 §2), post-reform
+// (parecer 2026-07-12 noite, ponto A): a GuruSeed applies to ONE expert —
+// its Sensei — never transversally. For every Work Order, the Resolver
+// convenes the Senseis whose craft overlaps the agent's tags and schedules
+// ONLY their seeds, saying WHY and WHO carries each. The Kernel never copies
+// the library; it schedules the necessary judgement.
 
-import { listMentors, listSeeds, type GuruSeed, type Mentor } from "./hi.js";
+import { listSeeds, listSenseis, type GuruSeed, type Sensei } from "./hi.js";
 
 export interface ResolvedSeed {
   seed: GuruSeed;
   /** Why the Resolver selected it — recorded verbatim in the manifest. */
   reason: string;
-  /** The Mentor whose composition carries this seed, if any. */
-  mentorId?: string;
-  mentorTitle?: string;
+  /** The Sensei that owns this seed — the voice that carries it. */
+  senseiId: string;
+  senseiTitle: string;
 }
 
 /**
- * Selection rules, v0 (deliberately legible — no embeddings, no magic):
- * a seed applies when it is admitted, its project scope includes this
- * project (or is empty = reusable), and its domains overlap the agent's
- * tags (or are empty = universal judgement). Mentor attribution: the first
- * mentor whose composition pins the seed.
+ * Selection rules, v1 (deliberately legible — no embeddings, no magic):
+ * a seed applies when it is admitted, owned by a Sensei, its project scope
+ * includes this project (or is empty = reusable), and its Sensei's craft
+ * domains overlap the agent's tags. No owner or no overlap = no entry —
+ * universal judgement died with the reform.
  */
 export function resolveSeeds(args: {
   projectId: string;
   agentTags: string[];
 }): ResolvedSeed[] {
-  const mentors = listMentors();
-  const byMentor = new Map<string, Mentor>();
-  for (const m of mentors) {
-    for (const s of m.seeds) {
-      if (!byMentor.has(s.id)) byMentor.set(s.id, m);
-    }
-  }
+  const senseis = new Map(listSenseis().map((m) => [m.id, m]));
   const out: ResolvedSeed[] = [];
   for (const seed of listSeeds()) {
-    if (seed.status !== "admitted") continue;
+    if (seed.status !== "admitted" || !seed.sensei) continue;
+    const sensei = senseis.get(seed.sensei);
+    if (!sensei) continue;
     const projectOk =
       seed.scope.projects.length === 0 || seed.scope.projects.includes(args.projectId);
     if (!projectOk) continue;
-    const overlap = seed.scope.domains.filter((d) => args.agentTags.includes(d));
-    const domainOk = seed.scope.domains.length === 0 || overlap.length > 0;
-    if (!domainOk) continue;
-
-    const mentor = byMentor.get(seed.id);
-    const why =
-      seed.scope.domains.length === 0
-        ? "universal admitted judgement" +
-          (seed.scope.projects.length > 0 ? ", local to this project" : "")
-        : `domain overlap [${overlap.join(", ")}] with the agent's tags`;
+    const overlap = (sensei.domains ?? []).filter((d) => args.agentTags.includes(d));
+    if (overlap.length === 0) continue;
     out.push({
       seed,
-      reason: mentor ? `${why}; carried by Mentor "${mentor.title}"` : why,
-      ...(mentor ? { mentorId: mentor.id, mentorTitle: mentor.title } : {}),
+      reason:
+        `o Sensei "${sensei.title}" serve este papel — domínio [${overlap.join(", ")}]` +
+        (seed.scope.projects.length > 0 ? ", seed local a este projeto" : ""),
+      senseiId: sensei.id,
+      senseiTitle: sensei.title,
     });
   }
   return out;
 }
 
 /**
- * The mentors whose seeds are applicable to this project — the voices the
- * Decision Surface convenes, each attributed on the option it shapes.
+ * The Senseis with at least one admitted seed applicable to this project —
+ * the voices the Decision Surface convenes, each attributed on the option
+ * it shapes.
  */
-export function applicableMentors(projectId: string): Mentor[] {
-  const seedIds = new Set(
-    resolveSeeds({ projectId, agentTags: [] })
-      .map((r) => r.seed.id)
-      .concat(
-        listSeeds()
-          .filter(
-            (s) =>
-              s.status === "admitted" &&
-              (s.scope.projects.length === 0 || s.scope.projects.includes(projectId)),
-          )
-          .map((s) => s.id),
-      ),
+export function applicableSenseis(projectId: string): Sensei[] {
+  const owners = new Set(
+    listSeeds()
+      .filter(
+        (s) =>
+          s.status === "admitted" &&
+          s.sensei !== undefined &&
+          (s.scope.projects.length === 0 || s.scope.projects.includes(projectId)),
+      )
+      .map((s) => s.sensei as string),
   );
-  return listMentors().filter((m) => m.seeds.some((s) => seedIds.has(s.id)));
+  return listSenseis().filter((m) => owners.has(m.id));
 }
 
-/** The seeds a specific mentor contributes to one project, with reasons. */
-export function mentorSeeds(projectId: string, mentor: Mentor): ResolvedSeed[] {
-  const admitted = new Map(listSeeds().map((s) => [s.id, s]));
+/** The seeds one Sensei owns and may bring to this project, with reasons. */
+export function senseiSeeds(projectId: string, sensei: Sensei): ResolvedSeed[] {
   const out: ResolvedSeed[] = [];
-  for (const pin of mentor.seeds) {
-    const seed = admitted.get(pin.id);
-    if (!seed || seed.status !== "admitted") continue;
+  for (const seed of listSeeds()) {
+    if (seed.status !== "admitted" || seed.sensei !== sensei.id) continue;
     if (seed.scope.projects.length > 0 && !seed.scope.projects.includes(projectId)) continue;
     out.push({
       seed,
-      reason: `pinned by Mentor "${mentor.title}" (composition v${mentor.version})`,
-      mentorId: mentor.id,
-      mentorTitle: mentor.title,
+      reason: `pertence ao Sensei "${sensei.title}" (composição v${sensei.version})`,
+      senseiId: sensei.id,
+      senseiTitle: sensei.title,
     });
   }
   return out;

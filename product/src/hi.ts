@@ -12,10 +12,20 @@
 //     seeds/<domain>/<slug>/versions/v<N>.yaml  (immutable history, write-once)
 //     seeds/<domain>/<slug>/evidence.jsonl      (append-only telemetry)
 //     seeds/<domain>/<slug>/applications.jsonl  (append-only telemetry)
-//     mentors/<id>.yaml (+ mentors/history/<id>/v<N>.yaml, write-once)
+//     senseis/<id>.yaml (+ senseis/history/<id>/v<N>.yaml, write-once)
+//     senseis/telemetry/<id>.victories.jsonl    (append-only: picked options)
+//     base/senseis/<id>.yaml                    (the reference photo, write-once)
 //     candidates/<id>.yaml
 //     retired/<id>.yaml
 //     index/  (derived, regenerable)
+//
+// The Sensei reform (parecer 2026-07-12 noite, pontos A/B/C/F2): the expert
+// entity is the SENSEI — every seed belongs to exactly ONE Sensei, nothing
+// applies transversally; when the Pilot picks an option a Sensei voiced, the
+// victory returns to that Sensei (append-only) and its graduation (faixa)
+// derives from use — like a fighter that wins and evolves. Reference Senseis
+// keep a write-once photo under base/ so the sanity of the evolved brain can
+// always be measured against the balanced original.
 //
 // Immutability contract (parecer 2026-07-12): the versioned CONTENT of a Seed
 // or Mentor is write-once per version -- revision bumps the version, history
@@ -47,8 +57,15 @@ export function hiDir(): string {
 function seedsRoot(): string {
   return resolve(hiDir(), "seeds");
 }
-function mentorsRoot(): string {
+function senseisRoot(): string {
+  return resolve(hiDir(), "senseis");
+}
+/** Pre-reform location — read only by the migration. */
+function legacyMentorsRoot(): string {
   return resolve(hiDir(), "mentors");
+}
+function baseRoot(): string {
+  return resolve(hiDir(), "base");
 }
 function candidatesRoot(): string {
   return resolve(hiDir(), "candidates");
@@ -80,6 +97,12 @@ export interface GuruSeed {
   };
   owner: string;
   version: number;
+  /**
+   * The Sensei this seed belongs to (parecer 2026-07-12 noite, ponto A):
+   * exactly one — a seed never applies transversally. Candidates may still
+   * be ownerless; admission assigns the owner.
+   */
+  sensei?: string;
   /** The judgement itself, in the owner's words. */
   rule: string;
   why: string;
@@ -106,16 +129,20 @@ export interface GuruSeed {
 }
 
 /**
- * A Mentor is NOT another intelligence and NOT an AI agent: it is a governed,
- * user-authored composition of GuruSeeds with a name and a voice -- the thing
- * the temporary model roles carry. The product shows which Mentor shaped
- * which option (ADR-0020 sec. 6).
+ * A Sensei is NOT another intelligence and NOT an AI agent: it is the named,
+ * governed expert of ONE craft -- the entity that owns GuruSeeds, whose voice
+ * the temporary model roles carry, and the ONLY thing that evolves with use:
+ * picked options return as victories, victories earn graduation (faixas).
+ * The product shows which Sensei suggested what (ADR-0020 sec. 6; parecer
+ * 2026-07-12 noite, pontos B/C). Formerly named "Mentor".
  */
-export interface Mentor {
+export interface Sensei {
   id: string;
   title: string;
   /** One line of voice, e.g. "realizador -- contencao antes do impacto". */
   persona: string;
+  /** The craft: domains this Sensei serves. Matching agent tags convene it. */
+  domains: string[];
   version: number;
   owner: string;
   createdAt: string;
@@ -123,6 +150,30 @@ export interface Mentor {
   selection_notes: string[];
   /** sha256 of the composition's content. */
   content_hash?: string;
+}
+
+/** One picked option, returned to the Sensei that voiced it (append-only). */
+export interface SenseiVictory {
+  ts: string;
+  project: string;
+  dsId: string;
+  optionId: string;
+  /** The decision the option answered, for a legible trail. */
+  decision: string;
+}
+
+/** The dojo ladder — derived from telemetry, never stored. */
+export const GRADUATIONS = [
+  { min: 20, faixa: "faixa preta" },
+  { min: 10, faixa: "faixa castanha" },
+  { min: 6, faixa: "faixa azul" },
+  { min: 3, faixa: "faixa verde" },
+  { min: 1, faixa: "faixa amarela" },
+  { min: 0, faixa: "faixa branca" },
+] as const;
+
+export function senseiGraduation(victories: number): string {
+  return (GRADUATIONS.find((g) => victories >= g.min) ?? GRADUATIONS[5]).faixa;
 }
 
 // ---------------------------------------------------------------------------
@@ -287,11 +338,15 @@ export function listCandidates(): GuruSeed[] {
     .map((f) => readYaml<GuruSeed>(resolve(candidatesRoot(), f)));
 }
 
-export function listMentors(): Mentor[] {
-  if (!existsSync(mentorsRoot())) return [];
-  return readdirSync(mentorsRoot())
+export function listSenseis(): Sensei[] {
+  if (!existsSync(senseisRoot())) return [];
+  return readdirSync(senseisRoot())
     .filter((f) => f.endsWith(".yaml"))
-    .map((f) => readYaml<Mentor>(resolve(mentorsRoot(), f)));
+    .map((f) => readYaml<Sensei>(resolve(senseisRoot(), f)));
+}
+
+export function getSensei(senseiId: string): Sensei | null {
+  return listSenseis().find((s) => s.id === senseiId) ?? null;
 }
 
 export function getSeed(seedId: string): GuruSeed | null {
@@ -329,6 +384,8 @@ export function addCandidateSeed(args: {
   provenanceNote: string;
   sourceProject?: string;
   owner?: string;
+  /** The Sensei this seed is proposed for — admission may still reassign. */
+  sensei?: string;
 }): GuruSeed {
   const seed: GuruSeed = {
     id: uniqueSeedId(slugifyId(args.title)),
@@ -341,6 +398,7 @@ export function addCandidateSeed(args: {
     },
     owner: args.owner ?? "helder",
     version: 1,
+    ...(args.sensei?.trim() ? { sensei: args.sensei.trim() } : {}),
     rule: args.rule.trim(),
     why: args.why.trim(),
     provenance: {
@@ -356,10 +414,24 @@ export function addCandidateSeed(args: {
   return seed;
 }
 
-/** The Pilot's hand: candidate -> admitted (moves into the seeds tree). */
-export function admitSeed(seedId: string, editedRule?: string): GuruSeed {
+/**
+ * The Pilot's hand: candidate -> admitted (moves into the seeds tree).
+ * The reform (ponto A): every admitted seed belongs to exactly ONE Sensei —
+ * `senseiId` assigns or confirms the owner, and the ownership is mirrored
+ * into the Sensei's composition (a new pin bumps the Sensei's version).
+ */
+export function admitSeed(seedId: string, editedRule?: string, senseiId?: string): GuruSeed {
   const seed = getCandidate(seedId);
   if (!seed) throw new Error(`unknown candidate seed ${seedId}`);
+  const owner = senseiId?.trim() || seed.sensei;
+  if (!owner) {
+    throw new Error(
+      `a seed belongs to exactly one Sensei — choose one before admitting ${seedId}`,
+    );
+  }
+  const sensei = getSensei(owner);
+  if (!sensei) throw new Error(`unknown Sensei ${owner} — create it before admitting`);
+  seed.sensei = owner;
   if (editedRule && editedRule.trim() !== "") seed.rule = editedRule.trim();
   seed.status = "admitted";
   seed.provenance.admitted_by = seed.owner;
@@ -370,7 +442,18 @@ export function admitSeed(seedId: string, editedRule?: string): GuruSeed {
     resolve(candidatesRoot(), `${seedId}.yaml`),
     resolve(retiredRoot(), `${seedId}.candidate-admitted.yaml`),
   );
-  return seed;
+  // Ownership mirrored in the composition — visible, versioned, never silent.
+  if (!sensei.seeds.some((p) => p.id === seed.id)) {
+    saveSensei({
+      id: sensei.id,
+      title: sensei.title,
+      persona: sensei.persona,
+      domains: sensei.domains,
+      seedIds: [...sensei.seeds.map((p) => p.id), seed.id],
+      selectionNotes: sensei.selection_notes,
+    });
+  }
+  return getSeed(seedId) as GuruSeed;
 }
 
 /** The Pilot's hand: candidate -> retired (rejected, kept for the record). */
@@ -452,11 +535,11 @@ export function recordSeedEvidence(
 }
 
 // ---------------------------------------------------------------------------
-// Mentors -- authored and evolved by the user (the "director" the Pilot
-// builds); saving a change bumps the version, never silently, and every
-// version stays recoverable from mentors/history/.
+// Senseis -- authored and governed by the user; saving a change bumps the
+// version, never silently, and every version stays recoverable from
+// senseis/history/. Victories are telemetry: append-only, beside the content.
 
-function mentorContent(m: Mentor): Record<string, unknown> {
+function senseiContent(m: Sensei): Record<string, unknown> {
   const content: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(m)) {
     if (k !== "content_hash") content[k] = v;
@@ -465,51 +548,119 @@ function mentorContent(m: Mentor): Record<string, unknown> {
 }
 
 /** Write the current record and its immutable version snapshot (write-once). */
-function writeMentorRecord(mentor: Mentor): void {
-  const content = mentorContent(mentor);
+function writeSenseiRecord(sensei: Sensei): void {
+  const content = senseiContent(sensei);
   const record = { ...content, content_hash: sha256(YAML.stringify(content)) };
-  writeYaml(resolve(mentorsRoot(), `${mentor.id}.yaml`), record);
-  const vPath = resolve(mentorsRoot(), "history", mentor.id, `v${mentor.version}.yaml`);
+  writeYaml(resolve(senseisRoot(), `${sensei.id}.yaml`), record);
+  const vPath = resolve(senseisRoot(), "history", sensei.id, `v${sensei.version}.yaml`);
   if (!existsSync(vPath)) {
-    mkdirSync(resolve(mentorsRoot(), "history", mentor.id), { recursive: true });
+    mkdirSync(resolve(senseisRoot(), "history", sensei.id), { recursive: true });
     writeFileSync(vPath, YAML.stringify(record), { encoding: "utf8", flag: "wx" });
   }
 }
 
 /** A historical composition, recoverable exactly as written. */
-export function getMentorVersion(mentorId: string, version: number): Mentor | null {
-  const p = resolve(mentorsRoot(), "history", mentorId, `v${version}.yaml`);
-  return existsSync(p) ? readYaml<Mentor>(p) : null;
+export function getSenseiVersion(senseiId: string, version: number): Sensei | null {
+  const p = resolve(senseisRoot(), "history", senseiId, `v${version}.yaml`);
+  return existsSync(p) ? readYaml<Sensei>(p) : null;
 }
 
-export function saveMentor(args: {
+export function saveSensei(args: {
   id?: string;
   title: string;
   persona: string;
+  domains: string[];
   seedIds: string[];
   selectionNotes: string[];
   owner?: string;
-}): Mentor {
+}): Sensei {
   const id = args.id ?? slugifyId(args.title);
-  const existing = listMentors().find((m) => m.id === id) ?? null;
-  // A pre-correction record snapshots its current version before it bumps.
-  if (existing && existing.content_hash === undefined) writeMentorRecord(existing);
+  const existing = listSenseis().find((m) => m.id === id) ?? null;
   const seeds = args.seedIds
     .map((sid) => getSeed(sid))
     .filter((s): s is GuruSeed => s !== null)
     .map((s) => ({ id: s.id, version: s.version }));
-  const mentor: Mentor = {
+  const sensei: Sensei = {
     id,
     title: args.title.trim(),
     persona: args.persona.trim(),
+    domains: args.domains.map((d) => d.trim().toLowerCase()).filter((d) => d !== ""),
     version: existing ? existing.version + 1 : 1,
     owner: args.owner ?? existing?.owner ?? "helder",
     createdAt: existing?.createdAt ?? new Date().toISOString(),
     seeds,
     selection_notes: args.selectionNotes.filter((n) => n.trim() !== ""),
   };
-  writeMentorRecord(mentor);
-  return mentor;
+  writeSenseiRecord(sensei);
+  return sensei;
+}
+
+// ---------------------------------------------------------------------------
+// Victories (ponto C) -- "como um Pokémon que ganha a fight, evolui": when
+// the Pilot picks an option a Sensei voiced, the win returns to THAT Sensei
+// only. Append-only telemetry beside the content; graduation derives from it.
+
+function victoriesPath(senseiId: string): string {
+  return resolve(senseisRoot(), "telemetry", `${senseiId}.victories.jsonl`);
+}
+
+export function recordSenseiVictory(senseiId: string, victory: SenseiVictory): void {
+  if (getSensei(senseiId) === null) return; // an unknown voice earns nothing
+  mkdirSync(resolve(senseisRoot(), "telemetry"), { recursive: true });
+  appendFileSync(victoriesPath(senseiId), JSON.stringify(victory) + "\n", "utf8");
+}
+
+export function senseiVictories(senseiId: string): SenseiVictory[] {
+  return readJsonl<SenseiVictory>(victoriesPath(senseiId));
+}
+
+// ---------------------------------------------------------------------------
+// The reference photo (ponto F2) -- a write-once snapshot of a balanced
+// Sensei as shipped. The active record evolves with the Pilot; the photo
+// never does, so the sanity of the developed brain stays measurable.
+
+export function snapshotSenseiBase(senseiId: string): boolean {
+  const sensei = getSensei(senseiId);
+  if (!sensei) throw new Error(`unknown Sensei ${senseiId}`);
+  const p = resolve(baseRoot(), "senseis", `${senseiId}.yaml`);
+  if (existsSync(p)) return false;
+  mkdirSync(resolve(baseRoot(), "senseis"), { recursive: true });
+  writeFileSync(p, YAML.stringify(sensei), { encoding: "utf8", flag: "wx" });
+  return true;
+}
+
+export function baseSensei(senseiId: string): Sensei | null {
+  const p = resolve(baseRoot(), "senseis", `${senseiId}.yaml`);
+  return existsSync(p) ? readYaml<Sensei>(p) : null;
+}
+
+/** Active-vs-photo, per Sensei — the sanity check the Pilot asked for. */
+export interface SenseiSanity {
+  senseiId: string;
+  hasBase: boolean;
+  baseVersion?: number;
+  currentVersion: number;
+  seedsAdded: string[];
+  seedsRemoved: string[];
+  victories: number;
+  graduation: string;
+}
+
+export function senseiSanity(sensei: Sensei): SenseiSanity {
+  const base = baseSensei(sensei.id);
+  const wins = senseiVictories(sensei.id).length;
+  const baseIds = new Set((base?.seeds ?? []).map((s) => s.id));
+  const currentIds = new Set(sensei.seeds.map((s) => s.id));
+  return {
+    senseiId: sensei.id,
+    hasBase: base !== null,
+    ...(base ? { baseVersion: base.version } : {}),
+    currentVersion: sensei.version,
+    seedsAdded: [...currentIds].filter((id) => !baseIds.has(id)),
+    seedsRemoved: [...baseIds].filter((id) => !currentIds.has(id)),
+    victories: wins,
+    graduation: senseiGraduation(wins),
+  };
 }
 
 /**
@@ -533,12 +684,61 @@ export function ensureImmutableProvenance(): number {
       }
     }
   }
-  for (const m of listMentors()) {
-    const vPath = resolve(mentorsRoot(), "history", m.id, `v${m.version}.yaml`);
+  for (const m of listSenseis()) {
+    const vPath = resolve(senseisRoot(), "history", m.id, `v${m.version}.yaml`);
     if (m.content_hash === undefined || !existsSync(vPath)) {
-      writeMentorRecord(m);
+      writeSenseiRecord(m);
       corrected += 1;
     }
+  }
+  return corrected;
+}
+
+// ---------------------------------------------------------------------------
+// The Sensei reform migration (parecer 2026-07-12 noite): one-time,
+// mechanical, idempotent. mentors/ becomes senseis/ (history preserved);
+// each migrated Sensei derives its craft domains from the seeds it pins;
+// each admitted seed gains its owner Sensei from the composition that pinned
+// it. Content changes bump versions — never edited in place.
+
+export function ensureSenseiLibrary(): number {
+  let corrected = 0;
+  // 1. Move the pre-reform tree, files and history alike.
+  if (existsSync(legacyMentorsRoot()) && !existsSync(senseisRoot())) {
+    renameSync(legacyMentorsRoot(), senseisRoot());
+    corrected += 1;
+  }
+  // 2. A migrated record without domains derives them from its pinned seeds.
+  for (const raw of listSenseis()) {
+    if (Array.isArray(raw.domains)) continue;
+    const pinned = raw.seeds
+      .map((p) => getSeed(p.id))
+      .filter((s): s is GuruSeed => s !== null);
+    const domains = [...new Set(pinned.flatMap((s) => s.scope.domains))];
+    saveSensei({
+      id: raw.id,
+      title: raw.title,
+      persona: raw.persona,
+      domains,
+      seedIds: raw.seeds.map((p) => p.id),
+      selectionNotes: raw.selection_notes,
+      owner: raw.owner,
+    });
+    corrected += 1;
+  }
+  // 3. Every admitted seed belongs to exactly one Sensei — assign from the
+  //    composition that pins it (revision: version bumps, history stays).
+  for (const seed of listSeeds()) {
+    if (seed.status !== "admitted" || seed.sensei) continue;
+    const owner = listSenseis().find((m) => m.seeds.some((p) => p.id === seed.id));
+    if (!owner) continue; // an orphan stays visible — the Pilot assigns it in the UI
+    ensureSeedSidecars(seedDir(seed));
+    const current = getSeed(seed.id);
+    if (!current) continue;
+    current.sensei = owner.id;
+    current.version += 1;
+    writeSeedRecord(current);
+    corrected += 1;
   }
   return corrected;
 }

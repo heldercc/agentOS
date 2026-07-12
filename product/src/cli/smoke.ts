@@ -32,14 +32,26 @@ import {
   runConsult,
   runDecisionSurface,
   runExecute,
-  saveMentorGoverned,
+  saveSenseiGoverned,
   selectOption,
+  setEffortProfile,
   stageOf,
   storyOf,
   topOpenQuestion,
   type ArtifactProvenance,
 } from "../kernel.js";
-import { getCandidate, getMentorVersion, getSeed, getSeedVersion, seedYamlPath } from "../hi.js";
+import {
+  getCandidate,
+  getSensei,
+  getSenseiVersion,
+  getSeed,
+  getSeedVersion,
+  seedYamlPath,
+  senseiGraduation,
+  senseiSanity,
+  senseiVictories,
+  snapshotSenseiBase,
+} from "../hi.js";
 import { resolveSeeds } from "../resolver.js";
 import { buildActual } from "../effort.js";
 import { projectDir, WORKSPACE_DIR } from "../paths.js";
@@ -124,6 +136,19 @@ async function main(): Promise<void> {
   const top = topOpenQuestion(project.id);
   check("6. top question is the most-demanded", top !== null && top.askedBy.length > 1);
 
+  // Ponto D — the per-phase effort profile is the Pilot's standing strategy:
+  // internal movement (the automatic re-consult) must run at HIS "questions"
+  // level, not at the automation clamp.
+  setEffortProfile(
+    project.id,
+    { questions: "balanced", options: "low", execution: "minimal" },
+    true,
+  );
+  check(
+    "D1. the effort profile persists on the project",
+    getProject(project.id).effortProfile?.questions === "balanced",
+  );
+
   // Steps 7–8 — answer persists; relevant agents re-consult automatically.
   const { reconsulted } = await answerQuestion({
     projectId: project.id,
@@ -140,6 +165,13 @@ async function main(): Promise<void> {
     "8. every asking agent was re-consulted",
     reconsulted.length === (top?.askedBy.length ?? -1),
     `reconsulted=${reconsulted.join(",")}`,
+  );
+  check(
+    "D2. the automatic re-consult ran at the profile's questions level",
+    readWorkOrders(project.id, 1)
+      .filter((w) => w.kind === "reconsult")
+      .every((w) => w.effortLevel === "balanced") &&
+      readWorkOrders(project.id, 1).some((w) => w.kind === "reconsult"),
   );
 
   // Drain the remaining open questions (agent-specific ones).
@@ -234,41 +266,60 @@ async function main(): Promise<void> {
   check("13. iteration advanced", advanced.iteration === 2);
   check("13b. stage returns to consult", stageOf(project.id) === "consult");
 
-  // ADR-0020 — the Human Intelligence slice: the user's judgement enters as
-  // a candidate GuruSeed, is admitted by the user, composes into a Mentor,
-  // and from then on the Seed Resolver schedules it into every applicable
-  // work order — visibly, with the trail on the asset itself.
+  // ADR-0020 + the Sensei reform — the Human Intelligence slice: the Sensei
+  // of ONE craft exists first; the user's judgement enters as a candidate
+  // GuruSeed, is admitted TO that Sensei (ownership, ponto A), and from then
+  // on the Resolver schedules it only through the Sensei whose craft overlaps
+  // the agent's tags — never transversally.
+  const sensei = saveSenseiGoverned(
+    project.id,
+    {
+      title: "Smoke Sensei",
+      persona: "brevity above all",
+      domains: ["intent", "craft"],
+      seedIds: [],
+      selectionNotes: ["prefer project-local seeds when relevant"],
+    },
+    true,
+  );
+  check("20a0. the sensei starts at v1, faixa branca", sensei.version === 1 && senseiGraduation(0) === "faixa branca");
+  check("F2a. the reference photo is taken once", snapshotSenseiBase(sensei.id) === true);
+  check("F2b. the photo is write-once", snapshotSenseiBase(sensei.id) === false);
   const seed = addCandidateSeedGoverned(
     project.id,
     {
       title: "Prefer the shortest honest option",
       rule: "When two options are equal, the shorter one wins.",
       why: "brevity is a durable preference of this owner",
-      domains: [],
+      domains: ["craft"],
       projectLocal: false,
       provenanceNote: "smoke: the owner's own hand",
+      sensei: sensei.id,
     },
     true,
   );
   check("20a. seed enters as candidate", seed.status === "candidate");
   check(
     "20b. candidate seeds are never resolved",
-    resolveSeeds({ projectId: project.id, agentTags: [] }).every(
+    resolveSeeds({ projectId: project.id, agentTags: ["intent", "craft"] }).every(
       (r) => r.seed.id !== seed.id,
     ),
   );
-  decideSeedGoverned(project.id, seed.id, "admit", undefined, true);
-  const mentor = saveMentorGoverned(
-    project.id,
-    {
-      title: "Smoke Mentor",
-      persona: "brevity above all",
-      seedIds: [seed.id],
-      selectionNotes: ["prefer project-local seeds when relevant"],
-    },
-    true,
+  decideSeedGoverned(project.id, seed.id, "admit", undefined, true, sensei.id);
+  check(
+    "20c. admission assigns the owner and mirrors it in the composition (v2)",
+    getSeed(seed.id)?.sensei === sensei.id &&
+      getSensei(sensei.id)?.seeds.some((p) => p.id === seed.id) === true &&
+      getSensei(sensei.id)?.version === 2,
   );
-  check("20c. mentor composed from the admitted seed", mentor.seeds.length === 1);
+  check(
+    "A1. no owner overlap, no entry — transversality is dead",
+    resolveSeeds({ projectId: project.id, agentTags: [] }).length === 0 &&
+      resolveSeeds({ projectId: project.id, agentTags: ["unrelated-tag"] }).length === 0 &&
+      resolveSeeds({ projectId: project.id, agentTags: ["intent"] }).some(
+        (r) => r.seed.id === seed.id && r.senseiId === sensei.id,
+      ),
+  );
   await runConsult({ projectId: project.id, level: "minimal", runtime, scripted: true });
   const it2wo = readWorkOrders(project.id, 2).find((w) => w.kind === "consult");
   const it2manifest = it2wo
@@ -308,8 +359,10 @@ async function main(): Promise<void> {
       new Set(ds.options.map((o) => o.direction)).size === ds.options.length,
   );
   check(
-    "20g. the mentor's voice is attributed on its option",
-    ds.options.some((o) => o.seeds.some((s) => s.mentorId === mentor.id)),
+    "20g. the sensei's voice is attributed on its option, seeds included",
+    ds.options.some(
+      (o) => o.senseiId === sensei.id && o.seeds.some((s) => s.senseiId === sensei.id),
+    ),
   );
   check("20h. stage is decide while the surface is open", stageOf(project.id) === "decide");
   const firstOption = ds.options[0]?.id ?? "option-a";
@@ -337,6 +390,30 @@ async function main(): Promise<void> {
     decided.status === "decided" && decided.selected?.version === 2,
   );
   check("20l. stage moves to candidate", stageOf(project.id) === "candidate");
+  // Ponto C — the pick IS the fight won: the victory returns to the ONE
+  // Sensei whose voice was chosen, append-only, and the graduation follows.
+  const wins = senseiVictories(sensei.id);
+  check(
+    "C1. the victory landed on the picked sensei only",
+    wins.length === 1 && wins[0]?.dsId === ds.id && wins[0]?.optionId === firstOption,
+  );
+  check(
+    "C2. graduation derives from victories (faixa amarela at 1)",
+    senseiGraduation(wins.length) === "faixa amarela",
+  );
+  check(
+    "C3. the victory is evidence",
+    readEvents(project.id).some((e) => e.action === "sensei_victory"),
+  );
+  check(
+    "F2c. sanity vs the photo shows what the sensei learned",
+    (() => {
+      const s = getSensei(sensei.id);
+      if (!s) return false;
+      const sa = senseiSanity(s);
+      return sa.hasBase && sa.baseVersion === 1 && sa.seedsAdded.includes(seed.id);
+    })(),
+  );
   await runCandidate({ projectId: project.id, level: "minimal", runtime, scripted: true });
   const synthWo = readWorkOrders(project.id, 2)
     .filter((w) => w.kind === "synthesize")
@@ -472,21 +549,23 @@ async function main(): Promise<void> {
       );
     })(),
   );
-  const mentor2 = saveMentorGoverned(
+  const sensei3 = saveSenseiGoverned(
     project.id,
     {
-      title: "Smoke Mentor",
+      id: sensei.id,
+      title: "Smoke Sensei",
       persona: "brevity above all, honesty above brevity",
+      domains: ["intent", "craft"],
       seedIds: [seed.id],
       selectionNotes: [],
     },
     true,
   );
   check(
-    "22g. mentor revision bumps and v1 stays recoverable from history/",
-    mentor2.version === 2 &&
-      getMentorVersion(mentor.id, 1)?.persona === "brevity above all" &&
-      getMentorVersion(mentor.id, 2)?.seeds.some((s) => s.id === seed.id && s.version === 2) === true,
+    "22g. sensei revision bumps and v1 stays recoverable from history/",
+    sensei3.version === 3 &&
+      getSenseiVersion(sensei.id, 1)?.persona === "brevity above all" &&
+      getSenseiVersion(sensei.id, 3)?.seeds.some((s) => s.id === seed.id && s.version === 2) === true,
   );
 
   // The story: the whole project, including the new lineage, from disk.
@@ -511,7 +590,7 @@ async function main(): Promise<void> {
     "20r. governance moments are in the story",
     flat.some((i) => i.action === "state_approved") &&
       flat.some((i) => i.action === "seed_admitted") &&
-      flat.some((i) => i.action === "mentor_saved"),
+      flat.some((i) => i.action === "sensei_saved"),
   );
   check(
     "20s. the interview is in the story with question and answer",
@@ -592,6 +671,22 @@ async function main(): Promise<void> {
       .iterations.flatMap((i) => i.items)
       .some((i) => i.action === "context_sufficient" && i.actor === "pilot"),
   );
+
+  // Ponto J — the table size is the Pilot's explicit choice (2-4), decoupled
+  // from the effort level; each extra option is one extra call, nothing more.
+  const ds3 = await runDecisionSurface({
+    projectId: p2.id,
+    level: "minimal",
+    runtime,
+    scripted: true,
+    optionsCount: 3,
+  });
+  check(
+    "J1. three options at minimal effort when the Pilot asks for three",
+    ds3.options.length === 3,
+    `got ${ds3.options.length}`,
+  );
+  selectOption(p2.id, ds3.id, ds3.options[0]?.id ?? "option-a", 1, true);
 
   // Project lifecycle (parecer 2026-07-12): concluding is a governed act —
   // freeze and archive, never delete; reopening leaves evidence.

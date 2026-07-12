@@ -26,17 +26,18 @@ import {
   listSeeds,
   recordSeedApplication,
   recordSeedEvidence,
+  recordSenseiVictory,
   rejectSeed,
   reviseSeed,
-  saveMentor,
+  saveSensei,
   seedContentHash,
   seedYamlPath,
   type GuruSeed,
-  type Mentor,
+  type Sensei,
 } from "./hi.js";
 import {
-  applicableMentors,
-  mentorSeeds,
+  applicableSenseis,
+  senseiSeeds,
   resolveSeeds,
   type ResolvedSeed,
 } from "./resolver.js";
@@ -55,6 +56,7 @@ import type {
   ApprovedState,
   CandidateState,
   DecisionSurface,
+  EffortProfile,
   EvidenceEvent,
   MeterRecord,
   OptionRecord,
@@ -86,7 +88,18 @@ export function slugify(name: string): string {
   return base || "project";
 }
 
-export function initProject(name: string, description: string, scripted = false): Project {
+export const DEFAULT_EFFORT_PROFILE: EffortProfile = {
+  questions: "low",
+  options: "low",
+  execution: "low",
+};
+
+export function initProject(
+  name: string,
+  description: string,
+  scripted = false,
+  effortProfile?: EffortProfile,
+): Project {
   let id = slugify(name);
   let n = 2;
   while (existsSync(projectDir(id))) {
@@ -99,10 +112,35 @@ export function initProject(name: string, description: string, scripted = false)
     description: description.trim(),
     createdAt: nowIso(),
     iteration: 1,
+    effortProfile: effortProfile ?? { ...DEFAULT_EFFORT_PROFILE },
   };
   writeJson(abs(projectDir(id), "project.json"), project);
   event(project, "pilot", "project_init", scripted, {});
   return project;
+}
+
+/**
+ * The per-phase effort strategy (parecer 2026-07-12 noite, ponto D). The
+ * profile is the Pilot's explicit standing choice, so internal movement may
+ * run at it even above the automation line; without one, the pre-reform
+ * clamp applies.
+ */
+export function phaseEffort(project: Project, phase: keyof EffortProfile): EffortLevel {
+  return project.effortProfile?.[phase] ?? clampAutoEffort("low");
+}
+
+export function setEffortProfile(
+  projectId: string,
+  profile: EffortProfile,
+  scripted = false,
+): Project {
+  const project = getProject(projectId);
+  const updated: Project = { ...project, effortProfile: profile };
+  writeJson(abs(projectDir(projectId), "project.json"), updated);
+  event(updated, "pilot", "effort_profile_set", scripted, {
+    note: `perguntas ${profile.questions} · opções ${profile.options} · execução ${profile.execution}`,
+  });
+  return updated;
 }
 
 export function listProjects(): Project[] {
@@ -183,6 +221,9 @@ export interface ArtifactProvenance {
     contentHash: string;
     title: string;
     reason: string;
+    senseiId?: string;
+    senseiTitle?: string;
+    /** Pre-reform sidecars used the old name; kept readable, never written anew. */
     mentorId?: string;
     mentorTitle?: string;
   }[];
@@ -547,10 +588,11 @@ function addPilotNotes(b: ContextBuilder, project: Project): void {
 /**
  * A runtime agent is a composition (FOUNDATION-CORRECTION, ADR-0020 §2):
  * mandate + relevant project context + applicable human intelligence +
- * effort budget. The Seed Resolver selects the admitted GuruSeeds — they
- * enter BEFORE other optional elements, because under a tight budget the
- * owner's judgement outranks derived history. Each entry carries the
- * Resolver's reason (and Mentor attribution) into the manifest.
+ * effort budget. The Seed Resolver selects the admitted GuruSeeds through
+ * their owning Senseis — they enter BEFORE other optional elements, because
+ * under a tight budget the owner's judgement outranks derived history. Each
+ * entry carries the Resolver's reason (and Sensei attribution) into the
+ * manifest.
  */
 function addExpertise(
   b: ContextBuilder,
@@ -564,8 +606,7 @@ function addExpertise(
       id: r.seed.id,
       absPath: seedYamlPath(r.seed),
       content:
-        `${r.seed.title} (GuruSeed v${r.seed.version}` +
-        `${r.mentorTitle ? `, Mentor: ${r.mentorTitle}` : ""})\n\n` +
+        `${r.seed.title} (GuruSeed v${r.seed.version}, Sensei: ${r.senseiTitle})\n\n` +
         `Rule: ${r.seed.rule}\nWhy: ${r.seed.why}`,
       reason: r.reason,
       required: false,
@@ -778,9 +819,10 @@ export async function answerQuestion(args: {
   writeQuestions(project.id, questions);
   event(project, "pilot", "question_answered", scripted, { questionId: q.id });
 
-  // Automatic re-consult of the agents whose need this was (§8) — cheap by
-  // design: internal movement runs below the authority line.
-  const level = clampAutoEffort("low");
+  // Automatic re-consult of the agents whose need this was (§8) — internal
+  // movement runs at the Pilot's standing "questions" effort (ponto D): his
+  // explicit profile choice, not the automation clamp.
+  const level = phaseEffort(project, "questions");
   const spec = effortSpec(level);
   const roster = readRoster(project.id);
   const reconsulted: string[] = [];
@@ -1087,7 +1129,8 @@ export async function runExecute(args: {
         contentHash: r.seed.content_hash ?? seedContentHash(r.seed),
         title: r.seed.title,
         reason: r.reason,
-        ...(r.mentorId ? { mentorId: r.mentorId, mentorTitle: r.mentorTitle } : {}),
+        senseiId: r.senseiId,
+        senseiTitle: r.senseiTitle,
       })),
     };
     writeJson(
@@ -1162,6 +1205,8 @@ export function addCandidateSeedGoverned(
     domains: string[];
     projectLocal: boolean;
     provenanceNote: string;
+    /** The Sensei this seed is proposed for (ponto A) — admission confirms. */
+    sensei?: string;
   },
   scripted = false,
 ): GuruSeed {
@@ -1175,6 +1220,7 @@ export function addCandidateSeedGoverned(
     origin: "taught",
     provenanceNote: args.provenanceNote,
     sourceProject: projectId,
+    ...(args.sensei ? { sensei: args.sensei } : {}),
   });
   event(project, "pilot", "seed_candidate_added", scripted, {
     seedId: seed.id,
@@ -1189,34 +1235,39 @@ export function decideSeedGoverned(
   decision: "admit" | "reject",
   editedRule?: string,
   scripted = false,
+  senseiId?: string,
 ): void {
   const project = getProject(projectId);
   if (decision === "admit") {
-    const seed = admitSeed(seedId, editedRule);
-    event(project, "pilot", "seed_admitted", scripted, { seedId, note: seed.title });
+    const seed = admitSeed(seedId, editedRule, senseiId);
+    event(project, "pilot", "seed_admitted", scripted, {
+      seedId,
+      note: `${seed.title} → Sensei ${seed.sensei ?? "?"}`,
+    });
   } else {
     rejectSeed(seedId);
     event(project, "pilot", "seed_rejected", scripted, { seedId });
   }
 }
 
-export function saveMentorGoverned(
+export function saveSenseiGoverned(
   projectId: string,
   args: {
     id?: string;
     title: string;
     persona: string;
+    domains: string[];
     seedIds: string[];
     selectionNotes: string[];
   },
   scripted = false,
-): Mentor {
+): Sensei {
   const project = getProject(projectId);
-  const mentor = saveMentor(args);
-  event(project, "pilot", "mentor_saved", scripted, {
-    note: `${mentor.title} (v${mentor.version}, ${mentor.seeds.length} seeds)`,
+  const sensei = saveSensei(args);
+  event(project, "pilot", "sensei_saved", scripted, {
+    note: `${sensei.title} (v${sensei.version}, ${sensei.seeds.length} seeds, domínios [${sensei.domains.join(", ")}])`,
   });
-  return mentor;
+  return sensei;
 }
 
 /**
@@ -1281,7 +1332,7 @@ const OPTION_SYSTEM =
   "concrete option for a governed decision. Your angle is given in context " +
   "(the line starting with 'angle:'). Commit to that angle — the user will " +
   "compare genuinely distinct alternatives, so do not hedge toward the " +
-  "middle. If Mentor seeds are in context, apply them faithfully and let " +
+  "middle. If Sensei seeds are in context, apply them faithfully and let " +
   "them shape the option. Do not decide for the user; do not mention other " +
   "options. End with exactly one fenced ```json block: {\"title\", " +
   '"direction" (a 3-6 word slug of the underlying direction), ' +
@@ -1362,7 +1413,8 @@ function seedRefs(resolved: ResolvedSeed[]): OptionSeedRef[] {
     id: r.seed.id,
     version: r.seed.version,
     reason: r.reason,
-    ...(r.mentorId ? { mentorId: r.mentorId, mentorTitle: r.mentorTitle } : {}),
+    senseiId: r.senseiId,
+    senseiTitle: r.senseiTitle,
   }));
 }
 
@@ -1372,6 +1424,8 @@ export async function runDecisionSurface(args: {
   level: EffortLevel;
   runtime: Runtime;
   scripted?: boolean;
+  /** Ponto J: the Pilot's explicit table size (2-4); absent = effort-derived. */
+  optionsCount?: number;
 }): Promise<DecisionSurface> {
   const scripted = args.scripted ?? false;
   const project = getProject(args.projectId);
@@ -1388,14 +1442,17 @@ export async function runDecisionSurface(args: {
     ? "a próxima ação aprovada admite mais do que um caminho honesto"
     : "a intenção fundadora admite mais do que uma direção honesta";
 
-  // Voices: the user's Mentors first (attributed), generic angles fill the
-  // table to at least two genuinely distinct alternatives.
-  const mentors = applicableMentors(project.id).slice(0, Math.min(spec.maxAgents, 4));
-  const targetCount = Math.max(2, Math.min(spec.maxAgents, 4));
-  const angles: { id: string; hint: string; mentorId?: string }[] = mentors.map((m) => ({
+  // Voices: the user's Senseis first (attributed — theirs is the victory if
+  // picked), generic angles fill the table. Table size: the Pilot's explicit
+  // choice wins; otherwise it follows the effort level.
+  const targetCount = args.optionsCount
+    ? Math.max(2, Math.min(4, Math.round(args.optionsCount)))
+    : Math.max(2, Math.min(spec.maxAgents, 4));
+  const senseis = applicableSenseis(project.id).slice(0, targetCount);
+  const angles: { id: string; hint: string; senseiId?: string }[] = senseis.map((m) => ({
     id: m.id,
-    hint: `the path this Mentor's judgement points to: ${m.persona}`,
-    mentorId: m.id,
+    hint: `the path this Sensei's judgement points to: ${m.persona}`,
+    senseiId: m.id,
   }));
   for (const g of GENERIC_ANGLES) {
     if (angles.length >= targetCount) break;
@@ -1414,21 +1471,20 @@ export async function runDecisionSurface(args: {
       reason: "the distinct angle this option must commit to",
       required: true,
     });
-    const mentor = angle.mentorId ? mentors.find((m) => m.id === angle.mentorId) : undefined;
-    const resolved = mentor
-      ? mentorSeeds(project.id, mentor)
-      : resolveSeeds({ projectId: project.id, agentTags: [] });
+    const sensei = angle.senseiId ? senseis.find((m) => m.id === angle.senseiId) : undefined;
+    // A Sensei's voice carries ONLY its own seeds (ponto A); a generic angle
+    // carries none — human intelligence never enters transversally.
+    const resolved = sensei ? senseiSeeds(project.id, sensei) : [];
     for (const r of resolved) {
       b.add({
         kind: "expertise",
         id: r.seed.id,
         absPath: seedYamlPath(r.seed),
         content:
-          `${r.seed.title} (GuruSeed v${r.seed.version}` +
-          `${r.mentorTitle ? `, Mentor: ${r.mentorTitle}` : ""})\n\n` +
+          `${r.seed.title} (GuruSeed v${r.seed.version}, Sensei: ${r.senseiTitle})\n\n` +
           `Rule: ${r.seed.rule}\nWhy: ${r.seed.why}`,
         reason: r.reason,
-        required: mentor !== undefined,
+        required: true,
       });
     }
     addAnswers(b, project, false);
@@ -1450,6 +1506,7 @@ export async function runDecisionSurface(args: {
     options.push({
       id: `option-${OPTION_LETTERS[i] ?? String(i + 1)}`,
       version: 1,
+      ...(sensei ? { senseiId: sensei.id, senseiTitle: sensei.title } : {}),
       ...parsed,
       seeds: seedRefs(resolved.filter((r) => included.has(r.seed.id))),
       workOrderId: record.id,
@@ -1541,7 +1598,9 @@ export async function refineOption(args: {
     .sort((a, b) => b.version - a.version)[0];
   if (!base) throw new Error(`unknown option ${args.optionId} on ${args.dsId}`);
 
-  const spec = effortSpec(clampAutoEffort("low"));
+  // Refinement is interview-shaped movement — the "questions" phase effort.
+  const level = phaseEffort(project, "questions");
+  const spec = effortSpec(level);
   const b = baseContext(project, spec.contextBudgetChars);
   addApprovedState(b, project, false);
   b.add({
@@ -1583,7 +1642,7 @@ export async function refineOption(args: {
     agentId: base.id,
     system: REFINE_SYSTEM,
     ctx,
-    level: clampAutoEffort("low"),
+    level,
     runtime: args.runtime,
   });
   const parsed = optionFrom(text);
@@ -1592,6 +1651,8 @@ export async function refineOption(args: {
   const refined: OptionRecord = {
     id: base.id,
     version: base.version + 1,
+    // The voice stays the voice: refining a Sensei's option keeps the credit.
+    ...(base.senseiId ? { senseiId: base.senseiId, senseiTitle: base.senseiTitle } : {}),
     ...parsed,
     seeds: base.seeds,
     workOrderId: record.id,
@@ -1609,6 +1670,8 @@ export async function refineOption(args: {
   });
 
   // Step 11: a refinement may teach — candidate only, the Pilot governs it.
+  // Proposed for the Sensei whose option was refined: the learning returns
+  // to the voice that earned it, never to everyone (ponto C).
   const candidateSeed = addCandidateSeed({
     title: `Preferência: ${args.instruction.trim().slice(0, 60)}`,
     rule: args.instruction.trim(),
@@ -1620,6 +1683,7 @@ export async function refineOption(args: {
     origin: "taught",
     provenanceNote: `extracted from refinement ${ds.id}:${base.id} v${base.version}→v${refined.version}`,
     sourceProject: project.id,
+    ...(base.senseiId ? { sensei: base.senseiId } : {}),
   });
   event(project, "kernel", "seed_candidate_extracted", scripted, {
     seedId: candidateSeed.id,
@@ -1656,6 +1720,22 @@ export function selectOption(
     optionId,
     note: `${chosen.title} (v${version}${chosen.refinement ? ", refinada" : ""})`,
   });
+  // Ponto C — the fight was won: the victory returns to the ONE Sensei whose
+  // voice the Pilot picked. Append-only telemetry; graduation derives from it.
+  if (chosen.senseiId) {
+    recordSenseiVictory(chosen.senseiId, {
+      ts: nowIso(),
+      project: project.id,
+      dsId,
+      optionId,
+      decision: ds.decision,
+    });
+    event(project, "kernel", "sensei_victory", scripted, {
+      dsId,
+      optionId,
+      note: `vitória do Sensei ${chosen.senseiTitle ?? chosen.senseiId} — a escolha evolui quem a sugeriu`,
+    });
+  }
   return ds;
 }
 

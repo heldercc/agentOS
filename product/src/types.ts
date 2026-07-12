@@ -8,6 +8,8 @@
 // (ADR-0012/0015 rig) — rigs are disposable science and stay uncoupled; a copy
 // with provenance beats an import.
 
+import type { EffortLevel } from "./effort.js";
+
 /** A reference to a versioned data element (provenance by reference, never copy). */
 export interface ElementRef {
   id: string;
@@ -76,6 +78,21 @@ export interface ModelResult {
 // ---------------------------------------------------------------------------
 // The product loop's own schemas.
 
+/**
+ * The Pilot's standing effort strategy for one project (parecer 2026-07-12
+ * noite, ponto D): a level per phase — "um modelo melhor a planear e um pior
+ * a executar, ou vice-versa". Explicitly user-set, so it may sit above the
+ * automation authority line; the per-launch selector still overrides it.
+ */
+export interface EffortProfile {
+  /** Interview movement: consults, automatic re-consults, refinements. */
+  questions: EffortLevel;
+  /** Deliberation: Decision Surfaces, candidate synthesis. */
+  options: EffortLevel;
+  /** Creation: governed execution. */
+  execution: EffortLevel;
+}
+
 /** One project the Pilot governs — created from a name and a free-text intent. */
 export interface Project {
   id: string;
@@ -85,6 +102,8 @@ export interface Project {
   createdAt: string;
   /** Current iteration of the loop, 1-based. */
   iteration: number;
+  /** Per-phase effort strategy; absent = pre-reform project (treated as all "low"). */
+  effortProfile?: EffortProfile;
   /** Lifecycle: absent = active (pre-lifecycle records stay valid).
    *  Concluding is a governed act — archive, never delete; reopening
    *  leaves evidence. */
@@ -190,6 +209,9 @@ export interface OptionSeedRef {
   id: string;
   version: number;
   reason: string;
+  senseiId?: string;
+  senseiTitle?: string;
+  /** Pre-reform records used the old name; kept readable, never written anew. */
   mentorId?: string;
   mentorTitle?: string;
 }
@@ -198,6 +220,9 @@ export interface OptionSeedRef {
 export interface OptionRecord {
   id: string;
   version: number;
+  /** The Sensei whose voice produced this option — the one credited if picked. */
+  senseiId?: string;
+  senseiTitle?: string;
   title: string;
   direction: string;
   description: string;
@@ -267,7 +292,11 @@ export interface EvidenceEvent {
     | "seed_candidate_extracted"
     | "seed_evidence"
     | "seed_revised"
+    /** Pre-reform name, kept readable in old evidence logs; new events use sensei_saved. */
     | "mentor_saved"
+    | "sensei_saved"
+    | "sensei_victory"
+    | "effort_profile_set"
     | "decision_opened"
     | "option_refined"
     | "option_selected";
