@@ -1,0 +1,27 @@
+{
+  "spec": {
+    "level": "balanced",
+    "workerModel": "sonnet",
+    "maxAlternatives": 3,
+    "critic": false,
+    "contextBudgetChars": 8000,
+    "maxTokens": 4000,
+    "retryBudget": 1,
+    "timeoutMs": 240000,
+    "expectedQuality": "the working mode: useful alternatives, one validation pass",
+    "intendedFor": "normal governed iteration"
+  },
+  "estimate": {
+    "level": "balanced",
+    "alternatives": 3,
+    "criticPasses": 0,
+    "expectedTokens": 2127,
+    "expectedDurationMs": 295698,
+    "pressure": "negligible",
+    "expectedQuality": "the working mode: useful alternatives, one validation pass",
+    "confidence": "high",
+    "basedOnRuns": 9,
+    "recommendation": "low",
+    "recommendationReason": "first round: start cheap, escalate only if the work resists"
+  }
+}

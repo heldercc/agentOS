@@ -1,0 +1,28 @@
+{
+  "proposalId": "B",
+  "elements": [
+    {
+      "ref": {
+        "id": "d-eruption",
+        "version": "6858083",
+        "path": "experiments/beta-governance/data/projects/ascensao-t2/decisions.json",
+        "sha256": "ee9ed1a319e34c508de3c4fff69e16042c0b50b9be11fd43934ae057086377cb"
+      },
+      "kind": "decision",
+      "chars": 303,
+      "selectionReason": "the decision under governance"
+    },
+    {
+      "ref": {
+        "id": "app-homage",
+        "version": "6858083",
+        "path": "experiments/beta-governance/data/projects/ascensao-t2/approaches.json",
+        "sha256": "ea0e9fdae5f4840a34836835e890852c700b0c92231edfb6f29d67b831aee003"
+      },
+      "kind": "approach",
+      "chars": 240,
+      "selectionReason": "this proposal's assigned angle"
+    }
+  ],
+  "assembledSha256": "428c28580a667a7644c8365811c86afc951c76c56e5423a8ac798756efc597c6"
+}

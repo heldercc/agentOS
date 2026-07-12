@@ -1,0 +1,9 @@
+Proposta (2–8s): a erupção que nunca se vê. Aos 2.0s cortamos para LONGE — plano geral fixo a 400 metros, Aran é uma figura de dois milímetros no terço direito do enquadramento, paisagem enorme e indiferente. O grito chega-nos como chega a 400 metros: fino, atrasado, quase pequeno — e é isso que arrepia. Durante 1.5s não acontece MAIS NADA: só a figura minúscula, o grito distante e um bando de pássaros a rebentar das árvores no terço esquerdo (o único movimento — a natureza foge primeiro). Aos 3.5s a coluna de luz sobe do ponto onde ele está: uma linha vertical fina e absolutamente direita, dourada, silenciosa — a luz viaja mais depressa que o som, e nós estamos longe. O plano aguenta. Aos 4.1s o som CHEGA: um boom baixo que rola pela paisagem, e a onda de choque torna-se visível como um anel de poeira a correr na nossa direção pelos campos, a achatar erva, 0.6s de viagem — até bater na câmara e a imagem estremecer UMA vez. Depois: o pilar sustenta, o rumble sustenta, e nada mais se mexe até aos 8.0s. Deliberadamente NÃO mostrado: tudo — o rosto, o cabelo, o chão a partir, o corpo a mudar. A transformação inteira acontece dentro daquela linha de luz a 400 metros, e o público, que esperava o close-up canónico, recebe escala e distância: isto já não é um homem a gritar, é um evento geológico. O close-up fica guardado como dívida — paga-se na decisão da pose final.
+
+Beats:
+- 2.0–3.5s — plano geral fixo, figura de 2 mm; grito distante e fino; pássaros rebentam das árvores; mais nada.
+- 3.5–4.1s — a linha vertical dourada sobe, silenciosa, perfeitamente direita; o plano não corta.
+- 4.1–4.7s — o boom chega e rola; anel de poeira visível corre pelos campos até à câmara; a imagem estremece 1×.
+- 4.7–8.0s — pilar e rumble sustentam; a paisagem inteira iluminada a dourado; hold total até ao corte.
+
+Assunção usada: a cena tolera UM plano de escala antes de voltar à intimidade — é a única vez que a distância conta a história.

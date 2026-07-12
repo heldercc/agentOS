@@ -1,0 +1,12 @@
+{
+  "proposalId": "C",
+  "model": "manual",
+  "requestId": null,
+  "inputTokens": 242,
+  "outputTokens": 393,
+  "cacheCreationInputTokens": 0,
+  "cacheReadInputTokens": 0,
+  "timestamp": "2026-07-12T01:36:32.704Z",
+  "durationMs": 36203,
+  "estimated": true
+}

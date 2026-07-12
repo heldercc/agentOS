@@ -1,0 +1,28 @@
+{
+  "proposalId": "A",
+  "elements": [
+    {
+      "ref": {
+        "id": "d-camera",
+        "version": "6858083",
+        "path": "experiments/beta-governance/data/projects/ascensao-t2/decisions.json",
+        "sha256": "2f4e6ff65f2c6cdbc00a17e6e327170bbef6632ff814f9e5c5ba1845781ec1da"
+      },
+      "kind": "decision",
+      "chars": 311,
+      "selectionReason": "the decision under governance"
+    },
+    {
+      "ref": {
+        "id": "app-physical",
+        "version": "6858083",
+        "path": "experiments/beta-governance/data/projects/ascensao-t2/approaches.json",
+        "sha256": "4503a0c3439b53cf25d5c3736fcc48f27a346c3b7ea699450000719c6dc54e55"
+      },
+      "kind": "approach",
+      "chars": 231,
+      "selectionReason": "this proposal's assigned angle"
+    }
+  ],
+  "assembledSha256": "83558f952d7d9539f54a143aae15f353ed1eb1b8dccd87c89b7dcd530a699a02"
+}

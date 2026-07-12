@@ -1,0 +1,10 @@
+{
+  "session": "2026-07-12",
+  "decisionId": "d-buildup",
+  "round": 1,
+  "letters": {
+    "A": "app-economy",
+    "B": "app-physical",
+    "C": "app-homage"
+  }
+}

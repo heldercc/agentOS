@@ -1,0 +1,10 @@
+{
+  "session": "2026-07-12",
+  "decisionId": "d-camera",
+  "round": 1,
+  "letters": {
+    "A": "app-physical",
+    "B": "app-economy",
+    "C": "app-homage"
+  }
+}

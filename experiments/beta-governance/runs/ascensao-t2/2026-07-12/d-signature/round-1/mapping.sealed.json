@@ -1,0 +1,10 @@
+{
+  "session": "2026-07-12",
+  "decisionId": "d-signature",
+  "round": 1,
+  "letters": {
+    "A": "app-homage",
+    "B": "app-physical",
+    "C": "app-economy"
+  }
+}

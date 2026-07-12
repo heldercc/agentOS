@@ -1,0 +1,28 @@
+{
+  "proposalId": "B",
+  "elements": [
+    {
+      "ref": {
+        "id": "d-buildup",
+        "version": "6858083",
+        "path": "experiments/beta-governance/data/projects/ascensao-t2/decisions.json",
+        "sha256": "6125311b4eb0fe7bafb2b46ad63cfb1aae16c43b68af5a25dff4ba3571f8fb9f"
+      },
+      "kind": "decision",
+      "chars": 326,
+      "selectionReason": "the decision under governance"
+    },
+    {
+      "ref": {
+        "id": "app-physical",
+        "version": "6858083",
+        "path": "experiments/beta-governance/data/projects/ascensao-t2/approaches.json",
+        "sha256": "4503a0c3439b53cf25d5c3736fcc48f27a346c3b7ea699450000719c6dc54e55"
+      },
+      "kind": "approach",
+      "chars": 231,
+      "selectionReason": "this proposal's assigned angle"
+    }
+  ],
+  "assembledSha256": "1aabda0b2f1244a19ff0b3ad1bcb2d41cc51f4d4f175137591332651856d8109"
+}

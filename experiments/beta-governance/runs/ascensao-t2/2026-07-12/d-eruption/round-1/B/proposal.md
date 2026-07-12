@@ -1,0 +1,10 @@
+Proposta (2–8s): a erupção canónica, executada com disciplina. Aos 2.0s o grito entra JÁ no topo do registo — sem rampa, o corte de voz clássico do género — e a câmara cai para o contra-picado herói a 25°, ligeiramente rodada. O pilar dourado ignifica num único frame de branco aos 2.2s (impact frame nº1, 2 frames), e desse branco nasce a coluna vertical que fura o topo do enquadramento — nunca vemos onde acaba. Speed lines radiais entram nas diagonais do fundo aos 2.6s e, à medida que o grito sustenta, o cenário ABSTRAI: aos 4.5s o horizonte já não existe, só gradiente de energia dourado-branco a pulsar ao ritmo do grito (o fundo-energia clássico — barato, icónico, eficaz). O chão responde em círculo perfeito: anel de fratura limpo, entulho a subir em hélice ordenada à volta do pilar, tudo coreografado, nada aleatório — o caos AO SERVIÇO da pose. O pico aos 6.0s: impact frame nº2 (3 frames, branco total com a silhueta em negativo) e o boom EM CIMA da luz, sem atraso — no género, a catarse não espera pela física. Depois do pico, 2 segundos de triumphant hold: contra-picado fixo, aura a bater como bandeira, cabelo novo já visível em silhueta contra o gradiente. Deliberadamente NÃO mostrado: qualquer dano no corpo ou na roupa — o género promete poder, não custo; e o rosto só se revela DEPOIS do corte, na decisão seguinte, para guardar a moeda.
+
+Beats:
+- 2.0–2.2s — grito entra no topo; queda para contra-picado 25°; impact frame nº1 (2 fr) acende o pilar.
+- 2.2–4.5s — coluna fura o topo do frame; speed lines radiais; anel de fratura perfeito; entulho em hélice ordenada.
+- 4.5–6.0s — o fundo abstrai em gradiente de energia pulsante; grito sustenta; hélice acelera.
+- 6.0–6.1s — PICO: impact frame nº2 (3 fr, silhueta em negativo); boom síncrono com a luz.
+- 6.1–8.0s — triumphant hold: aura-bandeira, silhueta nova, gradiente a acalmar para dourado profundo até ao corte.
+
+Assunção usada: o público quer a catarse reconhecível — os dois impact frames e o fundo-energia são a gramática prometida, não preguiça.

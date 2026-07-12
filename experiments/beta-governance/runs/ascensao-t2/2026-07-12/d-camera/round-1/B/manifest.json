@@ -1,0 +1,28 @@
+{
+  "proposalId": "B",
+  "elements": [
+    {
+      "ref": {
+        "id": "d-camera",
+        "version": "6858083",
+        "path": "experiments/beta-governance/data/projects/ascensao-t2/decisions.json",
+        "sha256": "2f4e6ff65f2c6cdbc00a17e6e327170bbef6632ff814f9e5c5ba1845781ec1da"
+      },
+      "kind": "decision",
+      "chars": 311,
+      "selectionReason": "the decision under governance"
+    },
+    {
+      "ref": {
+        "id": "app-economy",
+        "version": "6858083",
+        "path": "experiments/beta-governance/data/projects/ascensao-t2/approaches.json",
+        "sha256": "4050b852d6dd64039ef914efaccfd433ae79d09328ea1bf70fc23c7d0b097f1e"
+      },
+      "kind": "approach",
+      "chars": 230,
+      "selectionReason": "this proposal's assigned angle"
+    }
+  ],
+  "assembledSha256": "1500a93801b642eee4e590f12484ff37e006c29a15fcc3ee52f023157f5610e1"
+}

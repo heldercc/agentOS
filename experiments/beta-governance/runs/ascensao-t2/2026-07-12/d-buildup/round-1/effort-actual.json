@@ -1,0 +1,24 @@
+{
+  "level": "balanced",
+  "estimate": {
+    "level": "balanced",
+    "alternatives": 3,
+    "criticPasses": 0,
+    "expectedTokens": 2700,
+    "expectedDurationMs": 75000,
+    "pressure": "negligible",
+    "expectedQuality": "the working mode: useful alternatives, one validation pass",
+    "confidence": "low",
+    "basedOnRuns": 0,
+    "recommendation": "low",
+    "recommendationReason": "first round: start cheap, escalate only if the work resists"
+  },
+  "actualTokens": 1896,
+  "actualDurationMs": 249177,
+  "alternatives": 3,
+  "criticPasses": 0,
+  "retriesUsed": 0,
+  "outcome": "ok",
+  "tokensDeltaPct": -30,
+  "durationDeltaPct": 232
+}

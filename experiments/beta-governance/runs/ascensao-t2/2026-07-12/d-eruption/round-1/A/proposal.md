@@ -1,0 +1,10 @@
+Proposta (2–8s): o grito não começa como grito — começa como esforço. Aos 2.0s a inspiração presa solta-se num rugido rasgado que ARRANCA grave, de peito, e só sobe de tom quando o corpo perde a batalha (2.8s); ouvimos a voz falhar uma vez a meio, como um levantador de peso no limite. Os pés CRAVAM: os calcanhares afundam 3 cm em terra real e é DESSE ponto que a fratura nasce — não um círculo perfeito, uma fenda torta que persegue as linhas de fraqueza do chão, a estalar tábua a tábua durante 1.2s inteiros. O pilar dourado não "liga": ACENDE-SE por camadas, de baixo para cima, como combustão a subir pelas pernas (2.9s → 3.6s), e o tecido do ombro rasga-se no exato frame em que a luz lhe chega ao tronco. O entulho obedece à massa: os fragmentos pequenos sobem primeiro, os grandes só estremecem e rolam; nada flutua com elegância — tudo é atirado, pesado, com rotação real. O pico aterra aos 6.4s: não é flash, é PRESSÃO — a câmara (média, fixa) é empurrada 4 cm para trás no tripé, e o boom correspondente chega 0.4s DEPOIS da luz, como distância real. Deliberadamente NÃO mostrado: o rosto durante o grito (só o pescoço e a mandíbula em contraluz), e o momento exato da mudança do cabelo — quando a luz baixa aos 7.5s, já aconteceu, e o público percebe que perdeu o milagre por estar a olhar para o custo. Zero impact frames: a física é o espetáculo.
+
+Beats:
+- 2.0–2.8s — rugido grave de esforço, voz falha 1×; calcanhares afundam 3 cm; a fenda torta nasce dos pés, estala tábua a tábua.
+- 2.9–3.6s — ignição por camadas, pernas → tronco; tecido rasga no ombro ao chegar a luz; fragmentos pequenos sobem, grandes rolam.
+- 3.6–6.4s — grito sobe de tom; pilar cresce com flutuação de combustão (não constante); poeira em espiral pesada junto ao chão.
+- 6.4–6.8s — PICO: pressão empurra a câmara 4 cm; luz primeiro, boom 0.4s depois; entulho médio finalmente descola.
+- 6.8–8.0s — decaimento: o grito morre em respiração rasgada audível; o pilar encolhe 30%; um fragmento grande aterra fora de campo, tardio.
+
+Assunção usada: continuidade com os 0–2s — sem adversário em campo; o custo físico é o fio condutor da cena inteira.
