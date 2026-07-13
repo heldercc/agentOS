@@ -1501,6 +1501,7 @@ function renderHome() {
       'Tu governas. <span class="badge">runtime: ' + esc(data.runtime) + '</span>' +
       (data.build ? '<span class="badge">build ' + esc(data.build.sha) + '</span>' : "") +
       '</div>';
+    h += fakeRuntimeCard(data.runtime);
     h += pageBootCard(data.build);
     h += staleCard(data.build);
     function homeLevelSelect(id) {
@@ -2066,6 +2067,18 @@ function staleCard(build) {
   return '<div class="kv" style="margin:-8px 0 12px;opacity:.75">' + notes.join(" · ") + "</div>";
 }
 
+// O sandbox tem de ser INCONFUNDÍVEL: o Piloto entrou no :4901 a pensar que
+// testava o produto real e correu um projeto inteiro contra respostas
+// deterministas (2026-07-13). Um badge discreto não chega — cartão sempre
+// visível, em cima, em todas as páginas.
+function fakeRuntimeCard(runtime) {
+  if (runtime !== "fake") return "";
+  return '<div class="card" style="border-left:4px solid var(--warn)">' +
+    "<b>🧪 Ambiente de ensaio — runtime fake.</b> " +
+    '<span class="kv">Tudo aqui é deterministicamente simulado: nenhum modelo real é chamado e os artefactos são texto de teste. ' +
+    "Serve para verificar o mecanismo, nunca para trabalho real. O teu trabalho vive no shell com runtime <b>cli</b>.</span></div>";
+}
+
 // A tab de um processo anterior corre código velho mas mostraria o build NOVO
 // (vem da API) — sem isto, mentiria por omissão. Nunca auto-recarrega: o
 // Piloto pode estar a meio de uma nota.
@@ -2085,6 +2098,7 @@ function render() {
     '<div class="sub">passagem ' + s.project.iteration + " pelo ciclo" +
     (isConcluded(s.project) ? ' <span class="badge ok">concluído</span>' : "") + "</div>" +
     buildLine(s.build);
+  h += fakeRuntimeCard(s.runtime);
   h += pageBootCard(s.build);
   h += staleCard(s.build);
   h += journeyBar(s);
