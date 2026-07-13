@@ -14,6 +14,10 @@ npm run smoke       # the whole loop on the fake runtime, zero cost
 npm run shell       # http://localhost:4900
 ```
 
+The Beta shell binds explicitly to `127.0.0.1`. It is local-only and must
+never be exposed directly to a LAN or the public internet; remote/mobile access
+arrives only through the future authenticated design registered for Phase 7.
+
 The runtime is chosen by env var:
 
 | `PRODUCT_RUNTIME` | what runs the Work Orders |
@@ -24,8 +28,10 @@ The runtime is chosen by env var:
 
 The loop, as the user lives it: create a project from a name and free text →
 the Kernel convenes a bounded team and collects their Question Needs → you
-answer **one governed question at a time** (answers re-consult the asking
-agents automatically) → the Kernel builds a candidate Project State → you
+answer **up to three coherent governed questions per submission** (each
+affected agent is re-consulted once with the relevant batch; a question may
+be routed to Decidir for concrete options) → the Kernel builds a candidate
+Project State and proposes a governed Project Map → you
 approve it (or reject it with direction) → you choose effort (probe first,
 spend after) and execute → artifacts return to `workspace/<project>/` by
 themselves → the iteration advances and the loop repeats.

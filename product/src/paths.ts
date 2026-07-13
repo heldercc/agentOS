@@ -10,6 +10,8 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { containedPath } from "./stores.js";
+
 const HERE = dirname(fileURLToPath(import.meta.url)); // src/
 export const PKG_ROOT = resolve(HERE, ".."); // product/
 export const REPO_ROOT = resolve(PKG_ROOT, ".."); // repo root
@@ -25,7 +27,12 @@ export function workspaceRoot(): string {
 }
 
 export function projectDir(projectId: string): string {
-  return resolve(workspaceRoot(), projectId);
+  if (!projectId || projectId === "." || projectId === ".." || /[\\/]/.test(projectId) || /^[a-z]:/i.test(projectId)) {
+    throw new Error(`invalid project id: ${projectId || "<empty>"}`);
+  }
+  const path = containedPath(workspaceRoot(), projectId);
+  if (path === null) throw new Error(`project id escapes workspace: ${projectId}`);
+  return path;
 }
 
 export function iterationDir(projectId: string, iteration: number): string {

@@ -72,6 +72,16 @@ New concepts enter here first.
   project's present: goals, constraints, open decisions, progress. Not "everything
   the system knows" — an archive is not a state (Article 8 applied to state
   itself). Scoped to a project; ends when the project ends.
+- **Project Map** — the governed, versioned topology of one project's Slices
+  and dependencies. It extends Project State without duplicating it: State
+  holds only the reference and present summary; the Map holds detail and is
+  scheduled into context only when needed (ADR-0024).
+- **Project Slice** — the smallest domain-free unit that can be understood,
+  governed, executed and evaluated independently enough to carry a purpose,
+  dependencies, expected Artifacts, material decisions and lifecycle status.
+- **Slicer** — an authorized Workflow that may propose a Candidate Project
+  Map. It has no authority and never walks an approved graph; deterministic
+  Project Engine mechanics do that at zero model tokens (ADR-0024).
 - **Memory** — knowledge that outlives projects: durable facts and outcomes.
   Distinct from Project State (per-project) and from seeds (judgment, not facts).
 - **Artifact** — any output of a Workflow: document, code, analysis, decision.

@@ -92,6 +92,15 @@ commoditized and swappable.
   idea leaving the Incubator.
 
 ## Next Bearing
+**CODEX CONTINUATION (implemented and verified after Claude handoff):**
+PHASE 2 safety + PHASE 3 registry/CI + PHASE 4 Project Engine MVP and the
+first PHASE 5 interaction slice are implemented and green at 149/149 smoke.
+The Slicer is a Kernel Work Order; Map mechanics are deterministic; three
+questions submit together; each agent reconsults once; questions may route to
+Decidir. Exact scope, live security proof and remaining limits are registered
+in `docs/navigation/HANDOFF-PHASE-2.md` §0A. The Pilot explicitly authorized
+this continuation to be committed and pushed as the next origin/main save.
+
 **The CEO programme (ADR-0022) is the governing order since Session 015:**
 PHASE 2 data/transition safety → PHASE 3 module registry + minimal CI →
 PHASE 4 Project Engine MVP (a Kernel mechanism — the Pilot's addendum is a

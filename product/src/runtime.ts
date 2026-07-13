@@ -8,7 +8,7 @@
 //   cli     — Claude Code invoked locally through PowerShell (the product path)
 //   mailbox — human-in-the-middle file drop, for when the CLI is not logged in
 
-import { spawn } from "node:child_process";
+import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -39,6 +39,26 @@ export class OpCancelledError extends Error {
   constructor(jobId: string) {
     super(`operação cancelada pelo Piloto (job ${jobId})`);
   }
+}
+
+export class OpTimeoutError extends Error {
+  override readonly name = "OpTimeoutError";
+  constructor(jobId: string, timeoutMs: number) {
+    super(`cli runtime timed out after ${timeoutMs}ms on job ${jobId}`);
+  }
+}
+
+/** Terminate exactly the current runtime process tree, including the Claude
+ * process below the PowerShell wrapper on Windows. */
+function terminateChildTree(child: ChildProcessWithoutNullStreams): void {
+  if (process.platform === "win32" && child.pid !== undefined) {
+    spawnSync("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"], {
+      windowsHide: true,
+      stdio: "ignore",
+    });
+    return;
+  }
+  child.kill();
 }
 
 /** ~4 chars/token — the estimate used when no API metering is available. */
@@ -223,6 +243,18 @@ export class FakeRuntime implements Runtime {
           "\n```\n"
         );
       }
+      case "slice":
+        return (
+          "```json\n" +
+          JSON.stringify({
+            slices: [
+              { id: "understand", title: "Compreender o necessário", purpose: "Resolve only the material context needed before direction is governed.", parentId: null, dependsOn: [], expectedArtifacts: ["context brief"], materialDecisions: ["scope and constraints", "acceptance boundary"] },
+              { id: "decide", title: "Governar a direção", purpose: "Present and settle the material direction without executing it.", parentId: null, dependsOn: ["understand"], expectedArtifacts: ["approved direction"], materialDecisions: ["chosen direction"] },
+              { id: "create", title: "Criar o resultado", purpose: "Produce the bounded result under the approved direction.", parentId: null, dependsOn: ["decide"], expectedArtifacts: ["usable artifact"], materialDecisions: [] },
+            ],
+          }, null, 2) +
+          "\n```\n"
+        );
     }
   }
 }
@@ -254,17 +286,13 @@ export class CliRuntime implements Runtime {
       let settled = false;
       const timer = setTimeout(() => {
         settled = true;
-        child.kill();
-        reject(
-          new Error(
-            `cli runtime timed out after ${args.timeoutMs}ms on job ${args.jobId}`,
-          ),
-        );
+        terminateChildTree(child);
+        reject(new OpTimeoutError(args.jobId, args.timeoutMs));
       }, args.timeoutMs);
       const onAbort = (): void => {
         settled = true;
         clearTimeout(timer);
-        child.kill();
+        terminateChildTree(child);
         reject(new OpCancelledError(args.jobId));
       };
       args.signal?.addEventListener("abort", onAbort);

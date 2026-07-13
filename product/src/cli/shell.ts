@@ -21,6 +21,7 @@ import {
   addCandidateSeedGoverned,
   advanceIteration,
   answerQuestion,
+  answerQuestions,
   appendOperationActual,
   concludeProject,
   decideCandidate,
@@ -35,6 +36,8 @@ import {
   addPilotNote,
   readCandidate,
   readApproved,
+  readCandidateProjectMap,
+  readProjectMap,
   readQuestions,
   readRoster,
   readSurfaces,
@@ -48,12 +51,18 @@ import {
   runConsult,
   runDecisionSurface,
   runExecute,
+  runProjectSlicer,
+  approveCandidateProjectMap,
+  moveProjectSlice,
+  nextProjectSlice,
   saveSenseiGoverned,
   selectOption,
   setEffortProfile,
   stageOf,
   storyOf,
   topOpenQuestion,
+  topOpenQuestions,
+  routeQuestionToDecision,
   type OnMeter,
   type OnPhase,
   type WorkOrderPhase,
@@ -65,6 +74,7 @@ import {
   listSenseis,
   listSeeds,
   migrateLegacyExpertise,
+  senseiOwnershipSanity,
   senseiSanity,
   senseiVictories,
 } from "../hi.js";
@@ -78,14 +88,20 @@ import {
   workspaceRoot,
 } from "../paths.js";
 import { OpCancelledError, resolveRuntime, type GenerateArgs, type Runtime } from "../runtime.js";
-import { abs, readJson, readText, writeJson } from "../stores.js";
+import { abs, containedPath, readJson, readText, writeJson } from "../stores.js";
 import { computeStaleness, gitDirtyProductFiles, gitProductHead, gitShortHead } from "../build.js";
 import { DATA_SCHEMA_VERSION, type EffortProfile, type MeterRecord, type OperationActual } from "../types.js";
+import { bodyTooLarge, hostAllowed, originAllowed } from "../http-guards.js";
+import { applyMigrations, MIGRATIONS } from "../migrations.js";
+import { recoverTransitions } from "../transitions.js";
+import { MODULE_REGISTRY_VERSION } from "../module-registry.js";
 
 /** PRODUCT_PORT lets a verification instance run beside the live :4900 shell. */
 const PORT = Number(process.env["PRODUCT_PORT"] ?? 4900);
 const RUNTIME_NAME = process.env["PRODUCT_RUNTIME"] ?? "cli";
 const runtime = resolveRuntime(RUNTIME_NAME, { mailboxDir: MAILBOX_DIR });
+recoverTransitions(workspaceRoot());
+const BOOT_MIGRATION = applyMigrations(workspaceRoot(), DATA_SCHEMA_VERSION, MIGRATIONS);
 
 // ---------------------------------------------------------------------------
 // Ponto A (parecer 2026-07-12) + PHASE 1.1 (ADR-0022): the running version
@@ -101,6 +117,7 @@ const BUILD = {
     } catch { return "0.0.0"; }
   })(),
   schemaVersion: DATA_SCHEMA_VERSION,
+  moduleRegistryVersion: MODULE_REGISTRY_VERSION,
   startedAt: new Date().toISOString(),
   port: PORT,
   runtime: RUNTIME_NAME,
@@ -127,6 +144,7 @@ function repoNow(): { repoHead: string | null; productHead: string | null; dirty
 function buildInfo(): typeof BUILD & {
   repoHead: string | null; productHead: string | null; dirtyProductFiles: number;
   stale: boolean; repoMovedDocsOnly: boolean; dirtyProduct: boolean;
+  safeMode: boolean; safeModeReason: string | null; migrationVersion: string;
 } {
   const r = repoNow();
   const s = computeStaleness({
@@ -137,7 +155,8 @@ function buildInfo(): typeof BUILD & {
     dirtyProductFiles: r.dirty,
   });
   return { ...BUILD, repoHead: r.repoHead, productHead: r.productHead,
-    dirtyProductFiles: r.dirty, ...s };
+    dirtyProductFiles: r.dirty, ...s, safeMode: BOOT_MIGRATION.safeMode,
+    safeModeReason: BOOT_MIGRATION.reason, migrationVersion: BOOT_MIGRATION.migrationVersion };
 }
 
 // One-time, mechanical, provenance-preserving (ADR-0020 §9).
@@ -440,8 +459,8 @@ function startOp(
             endedAt: new Date().toISOString(),
             outcome,
             wallMs: Date.now() - track.startedAtMs,
-            queueMs: track.queueMs ?? Date.now() - track.startedAtMs,
-            firstFeedbackMs: track.firstFeedbackMs ?? Date.now() - track.startedAtMs,
+            queueMs: track.queueMs,
+            firstFeedbackMs: track.firstFeedbackMs,
             phases: track.phases,
             workOrdersPlanned: b.callsPlanned,
             workOrdersDone: track.workOrdersDone,
@@ -530,6 +549,7 @@ function stateView(projectId: string): unknown {
   const roster = readRoster(projectId);
   const questions = readQuestions(projectId);
   const top = topOpenQuestion(projectId);
+  const topThree = topOpenQuestions(projectId, 3);
   const artifacts = listArtifacts(projectId).map((a) => ({
     iteration: a.iteration,
     agentId: a.agentId,
@@ -563,12 +583,16 @@ function stateView(projectId: string): unknown {
     interview: {
       open: openQuestions(projectId).length,
       top,
+      topThree,
       answered: questions
         .filter((q) => q.status === "answered")
         .map((q) => ({ id: q.id, text: q.text, answer: q.answer, askedBy: q.askedBy })),
     },
     candidate: readCandidate(projectId),
     approved: readApproved(projectId),
+    projectMap: readProjectMap(projectId),
+    candidateProjectMap: readCandidateProjectMap(projectId),
+    nextProjectSlice: nextProjectSlice(projectId),
     surface: openSurface(projectId),
     decidedSurfaces: readSurfaces(projectId).filter((d) => d.status === "decided").length,
     artifacts,
@@ -599,11 +623,56 @@ function json(res: ServerResponse, code: number, value: unknown): void {
   res.end(JSON.stringify(value));
 }
 
+class HttpRequestError extends Error {
+  constructor(readonly status: number, message: string) {
+    super(message);
+    this.name = "HttpRequestError";
+  }
+}
+
+function safeSinglePathPart(root: string, value: string): boolean {
+  if (!value || value === "." || value === ".." || /[\\/]/.test(value) || /^[a-z]:/i.test(value)) {
+    return false;
+  }
+  return containedPath(root, value) !== null;
+}
+
 async function body(req: IncomingMessage): Promise<Record<string, string>> {
+  const mediaType = (req.headers["content-type"] ?? "").split(";", 1)[0]?.trim().toLowerCase();
+  if (mediaType !== "application/json" && mediaType !== "application/x-www-form-urlencoded") {
+    throw new HttpRequestError(415, "tipo de conteúdo não suportado — usa JSON ou formulário");
+  }
   const chunks: Buffer[] = [];
-  for await (const c of req) chunks.push(c as Buffer);
+  let bytes = 0;
+  for await (const c of req) {
+    const chunk = c as Buffer;
+    bytes += chunk.length;
+    if (bodyTooLarge(bytes)) throw new HttpRequestError(413, "pedido demasiado grande — limite de 1 MB");
+    chunks.push(chunk);
+  }
   const text = Buffer.concat(chunks).toString("utf8");
-  return text ? (JSON.parse(text) as Record<string, string>) : {};
+  if (!text) return {};
+  let parsed: Record<string, string>;
+  try {
+    if (mediaType === "application/json") {
+      const value = JSON.parse(text) as unknown;
+      if (value === null || typeof value !== "object" || Array.isArray(value)) {
+        throw new Error("o corpo JSON deve ser um objeto");
+      }
+      parsed = Object.fromEntries(
+        Object.entries(value as Record<string, unknown>).map(([key, value]) => [key, String(value ?? "")]),
+      );
+    } else {
+      parsed = Object.fromEntries(new URLSearchParams(text));
+    }
+  } catch (e) {
+    throw new HttpRequestError(400, `pedido inválido: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  const projectId = parsed["project"];
+  if (projectId && !safeSinglePathPart(workspaceRoot(), projectId)) {
+    throw new HttpRequestError(400, "identificador de projeto inválido");
+  }
+  return parsed;
 }
 
 function asLevel(v: string | undefined): EffortLevel {
@@ -624,13 +693,40 @@ function profileFrom(b: Record<string, string>): EffortProfile {
 
 const server = createServer((req, res) => {
   void route(req, res).catch((e) => {
-    json(res, 500, { error: e instanceof Error ? e.message : String(e) });
+    if (e instanceof HttpRequestError) {
+      json(res, e.status, { error: e.message });
+      return;
+    }
+    console.error("request failed:", e);
+    json(res, 500, { error: "erro interno — consulta a Auditoria; nenhum detalhe privado foi exposto" });
   });
 });
 
 async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
   const q = (name: string): string => url.searchParams.get(name) ?? "";
+
+  if (req.method === "POST") {
+    if (!hostAllowed(req.headers.host, PORT)) {
+      json(res, 403, { error: "Host rejeitado — a App aceita mutações apenas em loopback" });
+      return;
+    }
+    const origin = Array.isArray(req.headers.origin) ? req.headers.origin[0] : req.headers.origin;
+    if (!originAllowed(origin, PORT)) {
+      json(res, 403, { error: "Origem rejeitada — mutação cross-origin não autorizada" });
+      return;
+    }
+    if (BOOT_MIGRATION.safeMode) {
+      json(res, 503, {
+        error: `modo seguro só de leitura — ${BOOT_MIGRATION.reason ?? "estado dos dados requer intervenção"}`,
+      });
+      return;
+    }
+  }
+  if (url.searchParams.has("project") && !safeSinglePathPart(workspaceRoot(), q("project"))) {
+    json(res, 400, { error: "identificador de projeto inválido" });
+    return;
+  }
 
   if (req.method === "GET" && url.pathname === "/") {
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
@@ -681,6 +777,51 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     json(res, 200, { effortProfile: project.effortProfile });
     return;
   }
+  if (req.method === "POST" && url.pathname === "/api/project/map/propose") {
+    const b = await body(req);
+    const projectId = b["project"] ?? "";
+    if (!guardActive(projectId, res)) return;
+    const level = asLevel(b["level"]);
+    const ok = startOp(projectId, "slice", level, 1, async () => {
+      await runProjectSlicer({
+        projectId,
+        level,
+        runtime: instrument(projectId),
+        onPhase: onPhaseFor(projectId),
+        onMeter: onMeterFor(projectId),
+      });
+    });
+    if (!ok) {
+      json(res, 409, { error: "já existe uma operação em curso neste projeto" });
+      return;
+    }
+    json(res, 200, { started: "slice" });
+    return;
+  }
+  if (req.method === "POST" && url.pathname === "/api/project/map/approve") {
+    const b = await body(req);
+    const expected = b["expectedVersion"] ? Number(b["expectedVersion"]) : null;
+    const map = approveCandidateProjectMap(b["project"] ?? "", expected);
+    json(res, 200, { version: map.version, slices: map.slices.length });
+    return;
+  }
+  if (req.method === "POST" && url.pathname === "/api/project/slice/move") {
+    const b = await body(req);
+    const target = b["to"];
+    if (!target || !["ready", "active", "done", "abandoned"].includes(target)) {
+      json(res, 400, { error: "estado de Slice inválido" });
+      return;
+    }
+    const map = moveProjectSlice({
+      projectId: b["project"] ?? "",
+      sliceId: b["sliceId"] ?? "",
+      to: target as "ready" | "active" | "done" | "abandoned",
+      expectedMapVersion: Number(b["expectedVersion"]),
+      ...(b["reason"]?.trim() ? { reason: b["reason"].trim() } : {}),
+    });
+    json(res, 200, { version: map.version, next: nextProjectSlice(map.projectId) });
+    return;
+  }
   if (req.method === "GET" && url.pathname === "/api/state") {
     if (!existsSync(projectDir(q("project")))) {
       json(res, 404, { error: "projeto desconhecido" });
@@ -708,6 +849,15 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     json(res, 200, storyOf(q("project")));
     return;
   }
+  if (req.method === "GET" && url.pathname === "/api/project/map") {
+    const projectId = q("project");
+    json(res, 200, {
+      current: readProjectMap(projectId),
+      candidate: readCandidateProjectMap(projectId),
+      next: nextProjectSlice(projectId),
+    });
+    return;
+  }
   if (req.method === "GET" && url.pathname === "/api/hi") {
     // Senseis carry their telemetry-derived rank (ponto C) and their
     // active-vs-photo sanity (ponto F2) — the library is inspectable, whole.
@@ -726,6 +876,7 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
       seeds: listSeeds(),
       candidates: listCandidates(),
       senseis,
+      ownershipSanity: senseiOwnershipSanity(),
     });
     return;
   }
@@ -901,6 +1052,44 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
       return;
     }
     json(res, 200, { started: op });
+    return;
+  }
+  if (req.method === "POST" && url.pathname === "/api/answers") {
+    const b = await body(req);
+    const projectId = b["project"] ?? "";
+    if (!guardActive(projectId, res)) return;
+    let answers: { questionId: string; answer: string }[];
+    try {
+      const ids = JSON.parse(b["questionIds"] ?? "[]") as unknown;
+      const values = JSON.parse(b["answers"] ?? "[]") as unknown;
+      if (!Array.isArray(ids) || !Array.isArray(values) || ids.length === 0 || ids.length !== values.length) {
+        throw new Error("lote desalinhado ou vazio");
+      }
+      answers = ids.map((id, index) => ({ questionId: String(id), answer: String(values[index] ?? "") }));
+      if (answers.some((item) => !item.answer.trim())) throw new Error("todas as respostas visíveis são obrigatórias");
+    } catch (e) {
+      json(res, 400, { error: `lote de respostas inválido: ${e instanceof Error ? e.message : String(e)}` });
+      return;
+    }
+    const answerLevel = getProject(projectId).effortProfile?.questions ?? "low";
+    const ok = startOp(projectId, "answer", answerLevel, plannedCalls(projectId, "consult", answerLevel), async () => {
+      await answerQuestions({
+        projectId,
+        answers,
+        runtime: instrument(projectId),
+        onPhase: onPhaseFor(projectId),
+        onMeter: onMeterFor(projectId),
+      });
+    });
+    if (!ok) { json(res, 409, { error: "já existe uma operação em curso neste projeto" }); return; }
+    json(res, 200, { started: "answer-batch", count: answers.length });
+    return;
+  }
+  if (req.method === "POST" && url.pathname === "/api/question/decide") {
+    const b = await body(req);
+    if (!guardActive(b["project"] ?? "", res)) return;
+    const question = routeQuestionToDecision(b["project"] ?? "", b["questionId"] ?? "");
+    json(res, 200, { routed: question.id });
     return;
   }
   if (req.method === "POST" && url.pathname === "/api/answer") {
@@ -1115,6 +1304,8 @@ connbar.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:9;padding:6
   "background:#3a2f14;color:#e0a63f;font-size:13px;display:none";
 document.body.appendChild(connbar);
 var lastPollOkAt = Date.now();
+var lastPollContactAt = Date.now();
+var lastPollOutcome = "ok";
 
 function esc(s) {
   return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
@@ -1267,11 +1458,14 @@ var pollInFlight = false;
 function finishPoll(seq, outcome, s) {
   pollInFlight = false;
   if (outcome === "connection-failure") {
+    lastPollOutcome = "connection-failure";
     // Silent here — the 1s interval's own staleness banner (age of
     // lastPollOkAt) is the honest signal for a hung/aborted connection.
     return;
   }
   if (outcome === "data-error") {
+    lastPollContactAt = Date.now();
+    lastPollOutcome = "data-error";
     // A DIFFERENT banner from the connection-age one: the App answered, but
     // with a bad status or unparseable body — never conflated with "the App
     // is unreachable".
@@ -1284,6 +1478,8 @@ function finishPoll(seq, outcome, s) {
   if (!shouldApplyPollClient(lastAppliedSeq, seq)) return;
   lastAppliedSeq = seq;
   lastPollOkAt = Date.now();
+  lastPollContactAt = lastPollOkAt;
+  lastPollOutcome = "ok";
   connbar.style.display = "none";
   // Re-render only on real change — a quiet poll must not eat a click.
   var j = JSON.stringify(s);
@@ -1419,7 +1615,11 @@ setInterval(function () {
   // never rejects, so a catch-driven flag would lie by omission.
   if (projectId) {
     var downS = Math.round((Date.now() - lastPollOkAt) / 1000);
-    if (downS > 8) {
+    var contactS = Math.round((Date.now() - lastPollContactAt) / 1000);
+    if (lastPollOutcome === "data-error" && contactS <= 8) {
+      connbar.style.display = "block";
+      connbar.textContent = "Erro de dados do servidor — a App respondeu, mas a resposta não é utilizável. A tentar de novo…";
+    } else if (downS > 8) {
       connbar.style.display = "block";
       connbar.textContent = "Ligação à App interrompida — última atualização há " + downS +
         "s. A tentar novamente…";
@@ -1534,6 +1734,19 @@ function primaryCard() {
         "O sistema monta uma equipa delimitada a partir da tua intenção e traz-te só as perguntas que importam.") +
       "</div>" + levelSelector("consult") +
       '<div style="margin-top:12px"><button onclick="op(\\'consult\\')">Começar — recolher as perguntas da equipa</button></div>');
+  } else if (s.stage === "interview" && s.interview.topThree && s.interview.topThree.length) {
+    var batch = s.interview.topThree;
+    var questionsHtml = '<div class="kv">' + s.interview.open + ' em aberto · até 3 perguntas coerentes por envio</div>';
+    batch.forEach(function (t, i) {
+      questionsHtml += '<div style="margin-top:12px"><div class="q">' + esc(t.text) + '</div>' +
+        '<textarea id="answer-' + i + '" data-qid="' + esc(t.id) + '" placeholder="A tua resposta"></textarea>' +
+        '<button class="ghost" style="margin-top:6px" onclick="routeToDecide(&quot;' + esc(t.id) + '&quot;)">Levar para Decidir — quero opções</button></div>';
+    });
+    h = primary("need", batch.length + (batch.length === 1 ? " pergunta" : " perguntas") + " nesta ronda",
+      questionsHtml +
+      '<div class="row" style="margin-top:12px"><button onclick="answerBatch(' + batch.length + ')">Responder às ' + batch.length + '</button>' +
+      '<button class="ghost" onclick="enough()">Chega — constrói com o que tens</button></div>' +
+      '<div class="kv" style="margin-top:6px">Cada agente recebe o lote relevante uma única vez. O que não souberes pode virar opções em Decidir.</div>');
   } else if (s.stage === "interview" && s.interview.top) {
     var t = s.interview.top;
     h = primary("need", "Uma pergunta de cada vez",
@@ -1699,6 +1912,12 @@ function buildLine(build) {
 // disclosed in words that do not claim "newer code exists".
 function staleCard(build) {
   if (!build) return "";
+  if (build.safeMode) {
+    return '<div class="card" style="border-left:4px solid var(--bad)"><div class="kv" ' +
+      'style="color:var(--bad)"><b>MODO SEGURO — só leitura.</b> ' +
+      esc(build.safeModeReason || "O estado dos dados requer intervenção.") +
+      ' Nenhuma alteração será aceite até a integridade ser recuperada.</div></div>';
+  }
   var started = new Date(build.startedAt).toTimeString().slice(0, 5);
   if (build.stale) {
     return '<div class="card" style="border-left:4px solid var(--warn)"><div class="kv" ' +
@@ -1772,6 +1991,7 @@ function agoraBody(s) {
       esc(s.lastError) + "</div></div>";
   }
   h += primaryCard();
+  h += projectMapCard(s);
 
   if (s.artifacts.length) {
     h += '<div class="card"><h2>Resultados</h2>';
@@ -1830,6 +2050,47 @@ function agoraBody(s) {
   return h;
 }
 
+function projectMapCard(s) {
+  var candidate = s.candidateProjectMap;
+  var map = s.projectMap;
+  if (!candidate && !map) {
+    return '<div class="card"><h2>Mapa do projeto</h2><div class="kv">O AgentOS pode propor as fatias, dependências e entregáveis — tu aprovas a estrutura antes de ela orientar o trabalho.</div>' +
+      '<button class="ghost" style="margin-top:10px" onclick="proposeMap()">Propor mapa do projeto</button></div>';
+  }
+  var shown = candidate || map;
+  var h = '<div class="card"><h2>Mapa do projeto <span class="badge">v' + shown.version +
+    (candidate ? ' · candidato' : ' · aprovado') + '</span></h2>';
+  h += '<div class="kv">Cada fatia é governável por si. Dependências e próximo trabalho são mecânicos — não gastam chamadas ao modelo.</div>';
+  shown.slices.forEach(function (slice) {
+    h += '<div style="border-left:3px solid ' + (slice.status === "done" ? 'var(--ok)' : slice.status === "blocked" ? 'var(--warn)' : 'var(--acc)') + ';padding:8px 10px;margin-top:10px">' +
+      '<b>' + esc(slice.title) + '</b> <span class="badge">' + esc(slice.status) + '</span>' +
+      '<div class="kv">' + esc(slice.purpose) + '</div>' +
+      (slice.dependsOn.length ? '<div class="kv">depende de: ' + slice.dependsOn.map(esc).join(', ') + '</div>' : '') +
+      (slice.expectedArtifacts.length ? '<div class="kv">entrega: ' + slice.expectedArtifacts.map(esc).join(', ') + '</div>' : '') +
+      (slice.materialDecisions.length ? '<div class="kv">decisões preparadas: ' + slice.materialDecisions.map(esc).join(' · ') + '</div>' : '') +
+      '</div>';
+  });
+  if (candidate) {
+    h += '<div class="row" style="margin-top:12px"><button onclick="approveMap(' + (map ? map.version : 'null') + ')">Aprovar este mapa</button>' +
+      '<button class="ghost" onclick="proposeMap()">Pedir nova proposta</button></div>';
+  } else if (s.nextProjectSlice) {
+    var next = s.nextProjectSlice;
+    h += '<div class="row" style="margin-top:12px"><span class="grow"><b>Próxima fatia:</b> ' + esc(next.title) + '</span>';
+    if (next.status === "ready") h += '<button onclick="moveSlice(\'' + esc(next.id) + '\',\'active\',' + map.version + ')">Começar fatia</button>';
+    if (next.status === "active") h += '<button onclick="moveSlice(\'' + esc(next.id) + '\',\'done\',' + map.version + ')">Marcar concluída</button>';
+    h += '</div>';
+  }
+  if (map) {
+    var affected = map.slices.filter(function (slice) { return slice.status === "affected"; });
+    affected.forEach(function (slice) {
+      h += '<div class="row" style="margin-top:10px"><span class="grow"><b>Precisa de revalidação:</b> ' + esc(slice.title) +
+        '<div class="kv">' + esc(slice.statusReason || "uma alteração a montante pode ter impacto") + '</div></span>' +
+        '<button class="ghost" onclick="moveSlice(&quot;' + esc(slice.id) + '&quot;,\'ready\',' + map.version + ')">Reavaliar esta fatia</button></div>';
+    });
+  }
+  return h + '</div>';
+}
+
 function levelSelect(id, current) {
   var h = '<select id="' + id + '">';
   state.levels.forEach(function (l) {
@@ -1860,6 +2121,8 @@ function auditBody(s) {
     (bl.stale ? "STALE — produto avançou" : bl.repoMovedDocsOnly ? "atual; repo avançou sem produto" : "atual") + ")" +
     (bl.dirtyProduct ? " · <b>" + bl.dirtyProductFiles + "</b> ficheiro(s) de produto por commitar" : "") +
     " · schema de dados v<b>" + esc(bl.schemaVersion) + "</b>" +
+    " · registry de módulos v<b>" + esc(bl.moduleRegistryVersion) + "</b>" +
+    " · migração <b>" + esc(bl.migrationVersion || "none") + "</b>" +
     " · processo desde " + esc(bl.startedAt ? new Date(bl.startedAt).toTimeString().slice(0, 5) : "?") +
     " · porta <b>" + esc(bl.port) + "</b> · node <b>" + esc(bl.node) + "</b>" +
     (s.busy ? " · operação <b>" + esc(s.busy.operationId) + "</b> · fase <b>" + esc(s.busy.phase) +
@@ -2195,6 +2458,24 @@ function saveProfile() {
     .then(function () { levelChosen = null; lastJson = ""; load(); })
     .catch(function (e) { alert(e.message); });
 }
+function answerBatch(count) {
+  var ids = [];
+  var values = [];
+  for (var i = 0; i < count; i++) {
+    var el = $("answer-" + i);
+    ids.push(el.getAttribute("data-qid"));
+    values.push(el.value);
+  }
+  post("/api/answers", {
+    project: projectId,
+    questionIds: JSON.stringify(ids),
+    answers: JSON.stringify(values),
+  }).then(load).catch(function (e) { alert(e.message); });
+}
+function routeToDecide(qid) {
+  post("/api/question/decide", { project: projectId, questionId: qid })
+    .then(load).catch(function (e) { alert(e.message); });
+}
 function answer(qid) {
   post("/api/answer", { project: projectId, questionId: qid, answer: $("answer").value })
     .then(load).catch(function (e) { alert(e.message); });
@@ -2234,6 +2515,26 @@ function note() {
   post("/api/note", { project: projectId, note: $("pnote").value })
     .then(function () { $("pnote").value = ""; load(); }).catch(function (e) { alert(e.message); });
 }
+function proposeMap() {
+  var level = (state.effortProfile && state.effortProfile.options) || "low";
+  post("/api/project/map/propose", { project: projectId, level: level })
+    .then(function () { lastJson = ""; load(); })
+    .catch(function (e) { alert(e.message); });
+}
+function approveMap(expectedVersion) {
+  post("/api/project/map/approve", {
+    project: projectId,
+    expectedVersion: expectedVersion == null ? "" : String(expectedVersion),
+  }).then(function () { lastJson = ""; load(); }).catch(function (e) { alert(e.message); });
+}
+function moveSlice(sliceId, to, expectedVersion) {
+  post("/api/project/slice/move", {
+    project: projectId,
+    sliceId: sliceId,
+    to: to,
+    expectedVersion: String(expectedVersion),
+  }).then(function () { lastJson = ""; load(); }).catch(function (e) { alert(e.message); });
+}
 function viewArtifact(it, agent, el) {
   fetch("/api/artifact?project=" + encodeURIComponent(projectId) + "&iteration=" + it +
     "&agent=" + encodeURIComponent(agent))
@@ -2251,7 +2552,7 @@ if (projectId) { load(); setInterval(load, 2500); } else { renderHome(); }
 </body>
 </html>`;
 
-server.listen(PORT, () => {
+server.listen(PORT, "127.0.0.1", () => {
   console.log(`AgentOS shell — http://localhost:${PORT} (runtime: ${RUNTIME_NAME})`);
   if (RUNTIME_NAME === "cli") {
     console.log(

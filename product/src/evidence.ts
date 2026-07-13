@@ -7,8 +7,9 @@ import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 
 import { projectDir } from "./paths.js";
-import { abs, readText } from "./stores.js";
+import { abs, readJsonl } from "./stores.js";
 import type { EvidenceEvent } from "./types.js";
+import { validateEvidenceEvent } from "./validate.js";
 
 export function appendEvent(event: EvidenceEvent): void {
   const path = abs(projectDir(event.projectId), "evidence.jsonl");
@@ -19,8 +20,9 @@ export function appendEvent(event: EvidenceEvent): void {
 export function readEvents(projectId: string): EvidenceEvent[] {
   const path = abs(projectDir(projectId), "evidence.jsonl");
   if (!existsSync(path)) return [];
-  return readText(path)
-    .split(/\r?\n/)
-    .filter((l) => l.trim() !== "")
-    .map((l) => JSON.parse(l) as EvidenceEvent);
+  // Torn-tail tolerant (ADR-0023 RULE D): a crash mid-append must not make
+  // the whole log unreadable — only the last line may be skipped.
+  return readJsonl<unknown>(path).map((event, index) =>
+    validateEvidenceEvent(event, `${path}[${index}]`),
+  );
 }

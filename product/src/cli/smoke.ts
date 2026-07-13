@@ -3,7 +3,8 @@
 // the smoke project id starts with "smoke-" so its meters never feed the
 // Effort Probe and its events never read as the user's.
 
-import { existsSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { relative } from "node:path";
 
 import { appendEvent, readEvents } from "../evidence.js";
 import { collectMeterSamples, probeEffort } from "../effort.js";
@@ -11,6 +12,7 @@ import {
   addCandidateSeedGoverned,
   advanceIteration,
   answerQuestion,
+  answerQuestions,
   appendOperationActual,
   concludeProject,
   decideCandidate,
@@ -21,6 +23,7 @@ import {
   listArtifacts,
   openQuestions,
   readApproved,
+  readProjectMap,
   readOperationActuals,
   readQuestions,
   readRoster,
@@ -34,12 +37,17 @@ import {
   runConsult,
   runDecisionSurface,
   runExecute,
+  runProjectSlicer,
+  approveCandidateProjectMap,
+  moveProjectSlice,
+  nextProjectSlice,
   saveSenseiGoverned,
   selectOption,
   setEffortProfile,
   stageOf,
   storyOf,
   topOpenQuestion,
+  routeQuestionToDecision,
   type ArtifactProvenance,
   type OnMeter,
   type OnPhase,
@@ -51,7 +59,9 @@ import {
   getSeed,
   getSeedVersion,
   seedYamlPath,
+  saveSensei,
   senseiGraduation,
+  senseiOwnershipSanity,
   senseiSanity,
   senseiVictories,
   snapshotSenseiBase,
@@ -59,11 +69,30 @@ import {
 import { resolveSeeds } from "../resolver.js";
 import { computeStaleness } from "../build.js";
 import { buildActual } from "../effort.js";
-import { LIVE_WORKSPACE_DIR, projectDir, workspaceRoot } from "../paths.js";
-import { abs, readJson, readText, sha256, writeArtifactOnce } from "../stores.js";
-import { FakeRuntime, OpCancelledError } from "../runtime.js";
+import { LIVE_WORKSPACE_DIR, PKG_ROOT, projectDir, workspaceRoot } from "../paths.js";
+import {
+  abs,
+  containedPath,
+  readJson,
+  readJsonl,
+  readText,
+  sha256,
+  writeArtifactOnce,
+  writeJson,
+} from "../stores.js";
+import { bodyTooLarge, hostAllowed, originAllowed } from "../http-guards.js";
+import {
+  FakeRuntime,
+  OpCancelledError,
+  type GenerateArgs,
+  type Runtime,
+} from "../runtime.js";
 import { classifyPollOutcome, shouldApplyPoll } from "../poll-logic.js";
-import type { ContextManifest, EvidenceEvent, OperationActual } from "../types.js";
+import type { ContextManifest, EvidenceEvent, ModelResult, OperationActual } from "../types.js";
+import { validateProject } from "../validate.js";
+import { applyMigrations, inspectMigrationState, type Migration } from "../migrations.js";
+import { recoverTransitions, withTransition } from "../transitions.js";
+import { assertModuleRegistry, MODULES } from "../module-registry.js";
 
 let passed = 0;
 let failed = 0;
@@ -95,6 +124,109 @@ async function main(): Promise<void> {
   check(
     "RULE A. smoke workspace is isolated from the Pilot's live one",
     workspaceRoot() !== LIVE_WORKSPACE_DIR && projectDir("smoke-loop").startsWith(smokeWs),
+  );
+  const sourcePaths: string[] = [];
+  const walkTs = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = abs(dir, entry.name);
+      if (entry.isDirectory()) walkTs(path);
+      else if (entry.name.endsWith(".ts")) sourcePaths.push(relative(PKG_ROOT, path).replace(/\\/g, "/"));
+    }
+  };
+  walkTs(abs(PKG_ROOT, "src"));
+  let registryComplete = true;
+  try { assertModuleRegistry(sourcePaths); } catch { registryComplete = false; }
+  check("MODULE 1. every durable TypeScript module is registered", registryComplete);
+  check("MODULE 2. every registration declares boundary, contract, tests and doctrine", MODULES.every((item) => item.authorityBoundary.length > 0 && item.contractVersion.length > 0 && item.tests.length > 0 && item.doctrine.length > 0));
+
+  // PHASE 2.1 — canonical records survive every deterministic crash window;
+  // append-only logs tolerate only a torn FINAL line (ADR-0023 RULE D).
+  const safetyDir = abs(smokeWs, "_store-safety");
+  mkdirSync(safetyDir, { recursive: true });
+  const x = abs(safetyDir, "x.json");
+  writeJson(x, { version: 1 });
+  writeJson(x, { version: 2 });
+  check("STORE 1. two writes preserve v1 in .prev", readJson<{ version: number }>(x + ".prev").version === 1);
+  writeFileSync(x + ".tmp", "not-json", "utf8");
+  check("STORE 2. stale garbage .tmp never shadows the good main", readJson<{ version: number }>(x).version === 2);
+  writeJson(x, { version: 3 });
+  check("STORE 2b. the next atomic write replaces and removes stale .tmp", !existsSync(x + ".tmp"));
+
+  const y = abs(safetyDir, "y.json");
+  writeJson(y, { recovered: true });
+  renameSync(y, y + ".prev");
+  check("STORE 3. missing main recovers its valid .prev", readJson<{ recovered: boolean }>(y).recovered);
+
+  const z = abs(safetyDir, "z.json");
+  writeJson(z, { version: 1 });
+  writeJson(z, { version: 2 });
+  writeFileSync(z, "{broken", "utf8");
+  let corruptNamedPrevious = false;
+  try {
+    readJson(z);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    corruptNamedPrevious = message.includes(z) && message.includes(z + ".prev");
+  }
+  check("STORE 4. corrupt main with valid .prev throws and names both", corruptNamedPrevious);
+
+  const log = abs(safetyDir, "events.jsonl");
+  writeFileSync(log, '{"n":1}\n{"n":2}\n{"n":', "utf8");
+  const whole = readJsonl<{ n: number }>(log);
+  check("STORE 5. a torn JSONL tail is skipped without losing whole records", whole.length === 2 && whole[1]?.n === 2);
+  writeFileSync(log, '{"n":1}\nBROKEN\n{"n":2}\n', "utf8");
+  let middleCorruptionThrows = false;
+  try { readJsonl(log); } catch { middleCorruptionThrows = true; }
+  check("STORE 5b. JSONL corruption in the middle still throws", middleCorruptionThrows);
+
+  // PHASE 2.2 pure perimeter gates — no server and no live data involved.
+  check("HTTP 1. loopback Host is accepted", hostAllowed("localhost:4900", 4900));
+  check("HTTP 2. foreign Host is rejected", !hostAllowed("evil.example", 4900));
+  check("HTTP 3. same Origin is accepted", originAllowed("http://127.0.0.1:4900", 4900));
+  check("HTTP 4. foreign Origin is rejected", !originAllowed("https://evil.example", 4900));
+  check("HTTP 5. body limit trips only above 1 MB", !bodyTooLarge(1024 * 1024) && bodyTooLarge(1024 * 1024 + 1));
+  check("HTTP 6. contained paths stay in root", containedPath(safetyDir, "child", "x.json") !== null);
+  check("HTTP 7. traversal and absolute paths escape no root", containedPath(safetyDir, "..", "escape") === null && containedPath(safetyDir, "C:\\escape") === null);
+  let validationNamesField = false;
+  try {
+    validateProject({ id: "bad", name: "Bad", description: "Bad", createdAt: "now", iteration: "one" }, "bad-project.json");
+  } catch (e) {
+    validationNamesField = e instanceof Error && e.message.includes("bad-project.json.iteration");
+  }
+  check("VALIDATE 1. wrong-typed records fail with record and field", validationNamesField);
+
+  const migrationRoot = abs(smokeWs, "_migration-safety");
+  const failingMigration: Migration = {
+    id: "smoke-1-to-2",
+    fromSchema: 1,
+    toSchema: 2,
+    dryRun: () => [],
+    apply: () => { throw new Error("simulated migration crash"); },
+    validate: () => undefined,
+  };
+  const failedMigration = applyMigrations(migrationRoot, 2, [failingMigration]);
+  check("MIGRATE 1. a failed migration forces read-only safe mode", failedMigration.safeMode && failedMigration.reason?.includes("smoke-1-to-2") === true);
+  const aheadRoot = abs(smokeWs, "_migration-ahead");
+  writeJson(abs(aheadRoot, "_meta", "schema.json"), { version: 99 });
+  check("MIGRATE 2. data ahead of code forces safe mode", inspectMigrationState(aheadRoot, 1).safeMode);
+
+  const transitionRoot = abs(smokeWs, "_transition-safety");
+  const oldFile = abs(transitionRoot, "old.json");
+  const newFile = abs(transitionRoot, "new.json");
+  writeJson(oldFile, { state: "old" });
+  try {
+    withTransition(transitionRoot, "smoke-crash", [oldFile, newFile], () => {
+      writeJson(oldFile, { state: "new" });
+      writeJson(newFile, { state: "new" });
+      throw new Error("simulated transition crash");
+    });
+  } catch {
+    // expected: withTransition restores the complete before-image
+  }
+  recoverTransitions(transitionRoot);
+  check(
+    "TRANSITION 1. crash recovery yields the complete old state, never half",
+    readJson<{ state: string }>(oldFile).state === "old" && !existsSync(newFile),
   );
 
   // Real meters, if any exist, must be exactly as many after the smoke:
@@ -324,11 +456,26 @@ async function main(): Promise<void> {
   );
   decideSeedGoverned(project.id, seed.id, "admit", undefined, true, sensei.id);
   check(
-    "20c. admission assigns the owner and mirrors it in the composition (v2)",
+    "20c. admission assigns canonical ownership and the Sensei index derives it",
     getSeed(seed.id)?.sensei === sensei.id &&
       getSensei(sensei.id)?.seeds.some((p) => p.id === seed.id) === true &&
-      getSensei(sensei.id)?.version === 2,
+      getSensei(sensei.id)?.version === 1,
   );
+  let divergenceRejected = false;
+  try {
+    saveSensei({
+      id: sensei.id,
+      title: sensei.title,
+      persona: sensei.persona,
+      domains: sensei.domains,
+      seedIds: [],
+      selectionNotes: sensei.selection_notes,
+    });
+  } catch {
+    divergenceRejected = true;
+  }
+  check("20c2. public API rejects a divergent Sensei.seeds edit", divergenceRejected);
+  check("20c3. canonical ownership sanity is healthy", senseiOwnershipSanity().healthy);
   check(
     "A1. no owner overlap, no entry — transversality is dead",
     resolveSeeds({ projectId: project.id, agentTags: [] }).length === 0 &&
@@ -580,9 +727,9 @@ async function main(): Promise<void> {
   );
   check(
     "22g. sensei revision bumps and v1 stays recoverable from history/",
-    sensei3.version === 3 &&
+    sensei3.version === 2 &&
       getSenseiVersion(sensei.id, 1)?.persona === "brevity above all" &&
-      getSenseiVersion(sensei.id, 3)?.seeds.some((s) => s.id === seed.id && s.version === 2) === true,
+      getSenseiVersion(sensei.id, 2)?.seeds.some((s) => s.id === seed.id && s.version === 2) === true,
   );
 
   // The story: the whole project, including the new lineage, from disk.
@@ -955,6 +1102,134 @@ async function main(): Promise<void> {
       readBack[0]?.outcome === "completed" &&
       readBack[0]?.tokensInput === 100,
   );
+
+  // PHASE 2.7 — a cancelled 3-WO execution resumes from the interrupted WO;
+  // completed WO1 and its immutable Artifact are reused, never called/written twice.
+  const resumeProject = initProject("Smoke Resume", "Prove partial Work Order reuse", true);
+  writeJson(abs(projectDir(resumeProject.id), "roster.json"), {
+    agents: ["one", "two", "three"].map((id) => ({ id, title: id, mandate: `produce ${id}`, tags: [] })),
+    workOrderId: "fixture-roster",
+  });
+  writeJson(abs(projectDir(resumeProject.id), "state", "approved.json"), {
+    iteration: 1,
+    approvedAt: new Date().toISOString(),
+    state: {
+      objective: "resume safely",
+      phase: "execution",
+      approvedDecisions: [],
+      activeArtifacts: [],
+      unresolvedQuestions: [],
+      constraints: [],
+      nextAction: "execute",
+    },
+  });
+  class CancelSecondRuntime implements Runtime {
+    readonly name = "cancel-second";
+    calls = 0;
+    readonly fake = new FakeRuntime();
+    async generate(args: GenerateArgs): Promise<ModelResult> {
+      this.calls += 1;
+      if (this.calls === 2) throw new OpCancelledError(args.jobId);
+      return this.fake.generate(args);
+    }
+  }
+  class CountingRuntime implements Runtime {
+    readonly name = "counting";
+    calls = 0;
+    readonly fake = new FakeRuntime();
+    async generate(args: GenerateArgs): Promise<ModelResult> {
+      this.calls += 1;
+      return this.fake.generate(args);
+    }
+  }
+  const cancelSecond = new CancelSecondRuntime();
+  let executionInterrupted = false;
+  try {
+    await runExecute({ projectId: resumeProject.id, level: "high", runtime: cancelSecond });
+  } catch (e) {
+    executionInterrupted = e instanceof OpCancelledError;
+  }
+  const afterCancel = readWorkOrders(resumeProject.id, 1);
+  check("RESUME 1. first pass preserves done WO1 and marks WO2 interrupted", executionInterrupted && afterCancel.some((wo) => wo.agentId === "one" && wo.status === "done") && afterCancel.some((wo) => wo.agentId === "two" && wo.status === "interrupted"));
+  const retryRuntime = new CountingRuntime();
+  const resumed = await runExecute({ projectId: resumeProject.id, level: "high", runtime: retryRuntime });
+  check("RESUME 2. retry skips completed WO1 and calls only WO2+WO3", retryRuntime.calls === 2);
+  check("RESUME 3. all three immutable Artifacts exist after resume", resumed.artifacts.length === 3 && listArtifacts(resumeProject.id).length === 3);
+
+  // PHASE 4 — AI proposes once; the Pilot approves; every graph movement
+  // after that is deterministic, versioned, CAS-protected and token-free.
+  const mapProject = initProject("Smoke Project Map", "Divide this objective into governed slices", true);
+  writeJson(abs(projectDir(mapProject.id), "state", "approved.json"), {
+    iteration: 1,
+    approvedAt: new Date().toISOString(),
+    state: {
+      objective: "prove the Project Engine",
+      phase: "mapped",
+      approvedDecisions: [],
+      activeArtifacts: [],
+      unresolvedQuestions: [],
+      constraints: [],
+      nextAction: "map the work",
+    },
+  });
+  const slicerRuntime = new CountingRuntime();
+  const proposedMap = await runProjectSlicer({ projectId: mapProject.id, level: "low", runtime: slicerRuntime, scripted: true });
+  check("MAP 1. Slicer is exactly one authorized model call", slicerRuntime.calls === 1 && proposedMap.candidate.slices.length === 3);
+  check("MAP 2. Candidate Map cannot schedule work", proposedMap.candidate.slices.every((slice) => slice.status === "proposed"));
+  const approvedMap = approveCandidateProjectMap(mapProject.id, null, true);
+  check("MAP 3. Pilot approval creates immutable v1 and State reference", approvedMap.version === 1 && readApproved(mapProject.id)?.state.projectMap?.version === 1);
+  check("MAP 4. deterministic traversal chooses the first unblocked Slice", nextProjectSlice(mapProject.id)?.id === "understand");
+  let staleMapRejected = false;
+  try { approveCandidateProjectMap(mapProject.id, null, true); } catch (e) { staleMapRejected = e instanceof Error && e.message.includes("conflict"); }
+  check("MAP 5. stale-tab approval cannot overwrite newer authority", staleMapRejected);
+  const mapV2 = moveProjectSlice({ projectId: mapProject.id, sliceId: "understand", to: "active", expectedMapVersion: 1, scripted: true });
+  const mapV3 = moveProjectSlice({ projectId: mapProject.id, sliceId: "understand", to: "done", expectedMapVersion: mapV2.version, scripted: true });
+  check("MAP 6. completing an upstream Slice unlocks the next with zero model calls", mapV3.version === 3 && nextProjectSlice(mapProject.id)?.id === "decide" && slicerRuntime.calls === 1);
+  const mapV4 = moveProjectSlice({ projectId: mapProject.id, sliceId: "decide", to: "active", expectedMapVersion: mapV3.version, scripted: true });
+  const mapV5 = moveProjectSlice({ projectId: mapProject.id, sliceId: "decide", to: "done", expectedMapVersion: mapV4.version, scripted: true });
+  const mapV6 = moveProjectSlice({ projectId: mapProject.id, sliceId: "understand", to: "active", expectedMapVersion: mapV5.version, reason: "new governing information", scripted: true });
+  check("MAP 7. backtracking marks all downstream work affected", mapV6.slices.filter((slice) => ["decide", "create"].includes(slice.id)).every((slice) => slice.status === "affected"));
+  check("MAP 8. approved Map history is write-once and current is validated", readProjectMap(mapProject.id)?.version === 6 && existsSync(abs(projectDir(mapProject.id), "state", "maps", "v1.json")));
+  const sliceDecision1 = await runDecisionSurface({ projectId: mapProject.id, level: "minimal", runtime, scripted: true, optionsCount: 2 });
+  const firstChoice = sliceDecision1.options[0];
+  if (!firstChoice) throw new Error("fake Decision Surface has no option");
+  selectOption(mapProject.id, sliceDecision1.id, firstChoice.id, firstChoice.version, true);
+  const sliceDecision2 = await runDecisionSurface({ projectId: mapProject.id, level: "minimal", runtime, scripted: true, optionsCount: 2 });
+  check("MAP 9. one Slice can prepare multiple sequential material decisions", sliceDecision1.decision === "scope and constraints" && sliceDecision2.decision === "acceptance boundary");
+
+  const batchProject = initProject("Smoke Question Batch", "Batch questions and route uncertainty", true);
+  writeJson(abs(projectDir(batchProject.id), "roster.json"), {
+    agents: [
+      { id: "alpha", title: "Alpha", mandate: "alpha", tags: [] },
+      { id: "beta", title: "Beta", mandate: "beta", tags: [] },
+    ],
+    workOrderId: "fixture-roster",
+  });
+  writeJson(abs(projectDir(batchProject.id), "questions.json"), {
+    questions: [
+      { id: "q-1", text: "First material fact?", askedBy: ["alpha", "beta"], iteration: 1, status: "open" },
+      { id: "q-2", text: "Second material fact?", askedBy: ["alpha"], iteration: 1, status: "open" },
+      { id: "q-3", text: "Third material fact?", askedBy: ["beta"], iteration: 1, status: "open" },
+    ],
+  });
+  const batchResult = await answerQuestions({
+    projectId: batchProject.id,
+    answers: [
+      { questionId: "q-1", answer: "one" },
+      { questionId: "q-2", answer: "two" },
+      { questionId: "q-3", answer: "three" },
+    ],
+    runtime,
+    scripted: true,
+  });
+  check("QUESTIONS 1. three answers submit as one coherent batch", readQuestions(batchProject.id).every((question) => question.status === "answered"));
+  check("QUESTIONS 2. each affected agent is reconsulted once, not once per question", batchResult.reconsulted.length === 2 && readWorkOrders(batchProject.id, 1).filter((wo) => wo.kind === "reconsult").length === 2);
+  writeJson(abs(projectDir(batchProject.id), "questions.json"), {
+    questions: [{ id: "q-4", text: "Which direction should we choose?", askedBy: ["alpha"], iteration: 1, status: "open" }],
+  });
+  routeQuestionToDecision(batchProject.id, "q-4", true);
+  const routedSurface = await runDecisionSurface({ projectId: batchProject.id, level: "minimal", runtime, scripted: true, optionsCount: 3 });
+  check("QUESTIONS 3. a deferred-to-Decide question becomes the Decision Surface", routedSurface.sourceQuestionId === "q-4" && routedSurface.decision === "Which direction should we choose?");
 
   console.log(`\n${passed}/${passed + failed} checks passed`);
   if (failed > 0) process.exit(1);

@@ -44,7 +44,17 @@ import { resolve } from "node:path";
 import YAML from "yaml";
 
 import { PKG_ROOT, projectDir, workspaceRoot } from "./paths.js";
-import { abs, readJson, readText, sha256 } from "./stores.js";
+import {
+  abs,
+  containedPath,
+  readJson,
+  readJsonl as readJsonlTornTailTolerant,
+  readText,
+  sha256,
+  writeTextAtomic,
+} from "./stores.js";
+import { validateGuruSeed, validateSensei } from "./validate.js";
+import { withTransition } from "./transitions.js";
 
 /**
  * The library root. PRODUCT_HI_DIR overrides it (read per call, not at
@@ -75,6 +85,13 @@ function candidatesRoot(): string {
 }
 function retiredRoot(): string {
   return resolve(hiDir(), "retired");
+}
+
+function recordPath(root: string, id: string, suffix = ".yaml"): string {
+  if (!/^[a-z0-9][a-z0-9._-]*$/i.test(id)) throw new Error(`invalid record id: ${id}`);
+  const path = containedPath(root, `${id}${suffix}`);
+  if (path === null) throw new Error(`record id escapes its store: ${id}`);
+  return path;
 }
 
 // ---------------------------------------------------------------------------
@@ -183,17 +200,35 @@ export function senseiGraduation(victories: number): string {
 // IO.
 
 function readYaml<T>(path: string): T {
-  return YAML.parse(readText(path)) as T;
+  const prev = path + ".prev";
+  if (!existsSync(path) && existsSync(prev)) {
+    console.warn(`readYaml: ${path} is missing — recovering ${prev}`);
+    renameSync(prev, path);
+  }
+  try {
+    return YAML.parse(readText(path)) as T;
+  } catch (e) {
+    if (existsSync(prev)) {
+      try { YAML.parse(readText(prev)); } catch { throw e; }
+      throw new Error(`readYaml: ${path} is corrupt; a valid previous version exists at ${prev}`);
+    }
+    throw e;
+  }
 }
 
 function writeYaml(path: string, value: unknown): void {
-  mkdirSync(resolve(path, ".."), { recursive: true });
-  writeFileSync(path, YAML.stringify(value), "utf8");
+  const text = YAML.stringify(value);
+  writeTextAtomic(path, text, (candidate) => { YAML.parse(candidate); });
 }
 
 function seedDir(seed: GuruSeed): string {
   const domain = seed.scope.domains[0] ?? "general";
-  return resolve(seedsRoot(), domain, seed.id);
+  if (domain === "." || domain === ".." || /[\\/]/.test(domain) || /^[a-z]:/i.test(domain) || !/^[a-z0-9][a-z0-9._-]*$/i.test(seed.id)) {
+    throw new Error(`invalid seed path identity: ${domain}/${seed.id}`);
+  }
+  const path = containedPath(seedsRoot(), domain, seed.id);
+  if (path === null) throw new Error(`seed path escapes library: ${domain}/${seed.id}`);
+  return path;
 }
 
 /** Canonical path of one admitted seed's record (provenance by reference). */
@@ -246,12 +281,12 @@ function writeSeedRecord(seed: GuruSeed): void {
   }
 }
 
+// Torn-tail tolerant (ADR-0023 RULE D): a crash mid-append to
+// applications.jsonl/evidence.jsonl/victories.jsonl must not make the whole
+// sidecar unreadable — only the last line may be skipped.
 function readJsonl<T>(path: string): T[] {
   if (!existsSync(path)) return [];
-  return readText(path)
-    .split(/\r?\n/)
-    .filter((l) => l.trim() !== "")
-    .map((l) => JSON.parse(l) as T);
+  return readJsonlTornTailTolerant<T>(path);
 }
 
 /** Attach the append-only telemetry sidecars to the versioned content. */
@@ -283,7 +318,7 @@ function hydrateSeed(raw: GuruSeed, dir: string): GuruSeed {
  */
 function ensureSeedSidecars(dir: string): boolean {
   const p = resolve(dir, "seed.yaml");
-  const raw = readYaml<GuruSeed>(p);
+  const raw = validateGuruSeed(readYaml<unknown>(p), p);
   const inlineApps = raw.applied_in ?? [];
   const inlineEvidence =
     (raw.evidence?.supporting.length ?? 0) + (raw.evidence?.contradicting.length ?? 0);
@@ -319,7 +354,7 @@ export function listSeeds(): GuruSeed[] {
     const dDir = resolve(seedsRoot(), domain);
     for (const slug of readdirSync(dDir)) {
       const p = resolve(dDir, slug, "seed.yaml");
-      if (existsSync(p)) out.push(hydrateSeed(readYaml<GuruSeed>(p), resolve(dDir, slug)));
+      if (existsSync(p)) out.push(hydrateSeed(validateGuruSeed(readYaml<unknown>(p), p), resolve(dDir, slug)));
     }
   }
   return out;
@@ -331,21 +366,39 @@ export function getSeedVersion(seedId: string, version: number): GuruSeed | null
   if (!current) return null;
   const p = resolve(seedDir(current), "versions", `v${version}.yaml`);
   if (!existsSync(p)) return null;
-  return hydrateSeed(readYaml<GuruSeed>(p), seedDir(current));
+  return hydrateSeed(validateGuruSeed(readYaml<unknown>(p), p), seedDir(current));
 }
 
 export function listCandidates(): GuruSeed[] {
   if (!existsSync(candidatesRoot())) return [];
   return readdirSync(candidatesRoot())
     .filter((f) => f.endsWith(".yaml"))
-    .map((f) => readYaml<GuruSeed>(resolve(candidatesRoot(), f)));
+    .map((f) => {
+      const path = resolve(candidatesRoot(), f);
+      return validateGuruSeed(readYaml<unknown>(path), path);
+    });
 }
 
-export function listSenseis(): Sensei[] {
+function listSenseisRaw(): Sensei[] {
   if (!existsSync(senseisRoot())) return [];
   return readdirSync(senseisRoot())
     .filter((f) => f.endsWith(".yaml"))
-    .map((f) => readYaml<Sensei>(resolve(senseisRoot(), f)));
+    .map((f) => {
+      const path = resolve(senseisRoot(), f);
+      return validateSensei(readYaml<unknown>(path), path);
+    });
+}
+
+/** seed.sensei is canonical; Sensei.seeds is a derived current index. */
+export function listSenseis(): Sensei[] {
+  const seeds = listSeeds();
+  return listSenseisRaw().map((sensei) => ({
+    ...sensei,
+    seeds: seeds
+      .filter((seed) => seed.status === "admitted" && seed.sensei === sensei.id)
+      .map((seed) => ({ id: seed.id, version: seed.version }))
+      .sort((a, b) => a.id.localeCompare(b.id)),
+  }));
 }
 
 export function getSensei(senseiId: string): Sensei | null {
@@ -439,32 +492,39 @@ export function admitSeed(seedId: string, editedRule?: string, senseiId?: string
   seed.status = "admitted";
   seed.provenance.admitted_by = seed.owner;
   seed.provenance.admitted_at = new Date().toISOString();
-  writeSeedRecord(seed);
-  mkdirSync(retiredRoot(), { recursive: true });
-  renameSync(
-    resolve(candidatesRoot(), `${seedId}.yaml`),
-    resolve(retiredRoot(), `${seedId}.candidate-admitted.yaml`),
-  );
+  const candidatePath = recordPath(candidatesRoot(), seedId);
+  const retiredPath = recordPath(retiredRoot(), seedId, ".candidate-admitted.yaml");
+  const target = seedYamlPath(seed);
+  const version = resolve(seedDir(seed), "versions", `v${seed.version}.yaml`);
+  withTransition(hiDir(), `admit-seed-${seedId}`, [candidatePath, retiredPath, target, version], () => {
+    writeSeedRecord(seed);
+    mkdirSync(retiredRoot(), { recursive: true });
+    renameSync(candidatePath, retiredPath);
+  });
   // Ownership mirrored in the composition — visible, versioned, never silent.
-  if (!sensei.seeds.some((p) => p.id === seed.id)) {
-    saveSensei({
-      id: sensei.id,
-      title: sensei.title,
-      persona: sensei.persona,
-      domains: sensei.domains,
-      seedIds: [...sensei.seeds.map((p) => p.id), seed.id],
-      selectionNotes: sensei.selection_notes,
-    });
-  }
+  // Sensei.seeds is derived from seed.sensei on read. There is deliberately
+  // no second canonical write here and therefore no dual-truth transition.
+  return getSeed(seedId) as GuruSeed;
+}
+
+/** Versioned reassignment through the canonical side only. */
+export function reassignSeedOwnership(seedId: string, senseiId: string): GuruSeed {
+  const seed = getSeed(seedId);
+  if (!seed) throw new Error(`unknown admitted seed ${seedId}`);
+  if (!getSensei(senseiId)) throw new Error(`unknown Sensei ${senseiId}`);
+  if (seed.sensei === senseiId) return seed;
+  seed.sensei = senseiId;
+  seed.version += 1;
+  writeSeedRecord(seed);
   return getSeed(seedId) as GuruSeed;
 }
 
 /** The Pilot's hand: candidate -> retired (rejected, kept for the record). */
 export function rejectSeed(seedId: string): void {
-  const p = resolve(candidatesRoot(), `${seedId}.yaml`);
+  const p = recordPath(candidatesRoot(), seedId);
   if (!existsSync(p)) throw new Error(`unknown candidate seed ${seedId}`);
   mkdirSync(retiredRoot(), { recursive: true });
-  renameSync(p, resolve(retiredRoot(), `${seedId}.rejected.yaml`));
+  renameSync(p, recordPath(retiredRoot(), seedId, ".rejected.yaml"));
 }
 
 /**
@@ -552,6 +612,7 @@ function senseiContent(m: Sensei): Record<string, unknown> {
 
 /** Write the current record and its immutable version snapshot (write-once). */
 function writeSenseiRecord(sensei: Sensei): void {
+  recordPath(senseisRoot(), sensei.id);
   const content = senseiContent(sensei);
   const record = { ...content, content_hash: sha256(YAML.stringify(content)) };
   writeYaml(resolve(senseisRoot(), `${sensei.id}.yaml`), record);
@@ -564,8 +625,9 @@ function writeSenseiRecord(sensei: Sensei): void {
 
 /** A historical composition, recoverable exactly as written. */
 export function getSenseiVersion(senseiId: string, version: number): Sensei | null {
+  recordPath(senseisRoot(), senseiId);
   const p = resolve(senseisRoot(), "history", senseiId, `v${version}.yaml`);
-  return existsSync(p) ? readYaml<Sensei>(p) : null;
+  return existsSync(p) ? validateSensei(readYaml<unknown>(p), p) : null;
 }
 
 export function saveSensei(args: {
@@ -578,11 +640,19 @@ export function saveSensei(args: {
   owner?: string;
 }): Sensei {
   const id = args.id ?? slugifyId(args.title);
+  recordPath(senseisRoot(), id);
   const existing = listSenseis().find((m) => m.id === id) ?? null;
-  const seeds = args.seedIds
-    .map((sid) => getSeed(sid))
-    .filter((s): s is GuruSeed => s !== null)
-    .map((s) => ({ id: s.id, version: s.version }));
+  const seeds = listSeeds()
+    .filter((seed) => seed.status === "admitted" && seed.sensei === id)
+    .map((seed) => ({ id: seed.id, version: seed.version }))
+    .sort((a, b) => a.id.localeCompare(b.id));
+  const requested = [...new Set(args.seedIds)].sort();
+  const canonical = seeds.map((seed) => seed.id).sort();
+  if (requested.length !== canonical.length || requested.some((seedId, i) => seedId !== canonical[i])) {
+    throw new Error(
+      `Sensei.seeds is derived from seed.sensei; use governed seed reassignment instead of editing ${id}'s index`,
+    );
+  }
   const sensei: Sensei = {
     id,
     title: args.title.trim(),
@@ -598,13 +668,80 @@ export function saveSensei(args: {
   return sensei;
 }
 
+export interface OwnershipSanity {
+  healthy: boolean;
+  missingSensei: { seedId: string; senseiId: string | null }[];
+  persistedIndexConflicts: { seedId: string; senseiIds: string[]; canonical: string | null }[];
+}
+
+/** Report every dual-truth symptom; never auto-fix canonical intelligence. */
+export function senseiOwnershipSanity(): OwnershipSanity {
+  const raw = listSenseisRaw();
+  const senseiIds = new Set(raw.map((sensei) => sensei.id));
+  const seeds = listSeeds();
+  const missingSensei = seeds
+    .filter((seed) => seed.status === "admitted" && (!seed.sensei || !senseiIds.has(seed.sensei)))
+    .map((seed) => ({ seedId: seed.id, senseiId: seed.sensei ?? null }));
+  const persistedIndexConflicts: OwnershipSanity["persistedIndexConflicts"] = [];
+  for (const seed of seeds) {
+    const listedBy = raw
+      .filter((sensei) => sensei.seeds.some((ref) => ref.id === seed.id))
+      .map((sensei) => sensei.id);
+    if (listedBy.length > 1 || (listedBy.length === 1 && listedBy[0] !== seed.sensei)) {
+      persistedIndexConflicts.push({
+        seedId: seed.id,
+        senseiIds: listedBy,
+        canonical: seed.sensei ?? null,
+      });
+    }
+  }
+  return {
+    healthy: missingSensei.length === 0 && persistedIndexConflicts.length === 0,
+    missingSensei,
+    persistedIndexConflicts,
+  };
+}
+
+export interface OwnershipMigrationPlan {
+  assignments: { seedId: string; senseiId: string }[];
+  conflicts: { seedId: string; candidates: string[] }[];
+  applied: number;
+}
+
+/** Mechanical, idempotent migration for ownerless legacy seeds. Dry-run by default. */
+export function migrateCanonicalOwnership(dryRun = true): OwnershipMigrationPlan {
+  const raw = listSenseisRaw();
+  const assignments: OwnershipMigrationPlan["assignments"] = [];
+  const conflicts: OwnershipMigrationPlan["conflicts"] = [];
+  for (const seed of listSeeds().filter((item) => item.status === "admitted" && !item.sensei)) {
+    const candidates = raw
+      .filter((sensei) => sensei.seeds.some((ref) => ref.id === seed.id))
+      .map((sensei) => sensei.id);
+    if (candidates.length === 1 && candidates[0]) {
+      assignments.push({ seedId: seed.id, senseiId: candidates[0] });
+    } else {
+      conflicts.push({ seedId: seed.id, candidates });
+    }
+  }
+  if (!dryRun && conflicts.length === 0) {
+    for (const assignment of assignments) {
+      reassignSeedOwnership(assignment.seedId, assignment.senseiId);
+    }
+  }
+  return {
+    assignments,
+    conflicts,
+    applied: dryRun || conflicts.length > 0 ? 0 : assignments.length,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Victories (ponto C) -- "como um Pokémon que ganha a fight, evolui": when
 // the Pilot picks an option a Sensei voiced, the win returns to THAT Sensei
 // only. Append-only telemetry beside the content; graduation derives from it.
 
 function victoriesPath(senseiId: string): string {
-  return resolve(senseisRoot(), "telemetry", `${senseiId}.victories.jsonl`);
+  return recordPath(resolve(senseisRoot(), "telemetry"), senseiId, ".victories.jsonl");
 }
 
 export function recordSenseiVictory(senseiId: string, victory: SenseiVictory): void {
@@ -625,7 +762,7 @@ export function senseiVictories(senseiId: string): SenseiVictory[] {
 export function snapshotSenseiBase(senseiId: string): boolean {
   const sensei = getSensei(senseiId);
   if (!sensei) throw new Error(`unknown Sensei ${senseiId}`);
-  const p = resolve(baseRoot(), "senseis", `${senseiId}.yaml`);
+  const p = recordPath(resolve(baseRoot(), "senseis"), senseiId);
   if (existsSync(p)) return false;
   mkdirSync(resolve(baseRoot(), "senseis"), { recursive: true });
   writeFileSync(p, YAML.stringify(sensei), { encoding: "utf8", flag: "wx" });
@@ -633,8 +770,8 @@ export function snapshotSenseiBase(senseiId: string): boolean {
 }
 
 export function baseSensei(senseiId: string): Sensei | null {
-  const p = resolve(baseRoot(), "senseis", `${senseiId}.yaml`);
-  return existsSync(p) ? readYaml<Sensei>(p) : null;
+  const p = recordPath(resolve(baseRoot(), "senseis"), senseiId);
+  return existsSync(p) ? validateSensei(readYaml<unknown>(p), p) : null;
 }
 
 /** Active-vs-photo, per Sensei — the sanity check the Pilot asked for. */

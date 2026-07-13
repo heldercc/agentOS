@@ -65,6 +65,13 @@ does no intelligent work. Keeping it small and boring is a design goal.
 recommendation and effort meet the Pilot's decision. It renders governance; it
 has no privileged path around it.
 
+The **Project Engine** is an internal Kernel mechanism (ADR-0024), not a
+second governor. It validates and traverses the governed Project Map,
+authorizes a Slicer Work Order when semantic structure is needed, and presents
+material Map changes through the existing Decision Surface authority line.
+It owns no executor, context assembler, agent channel, audit log or parallel
+FSM.
+
 ### Intelligence Plane — Senseis
 All intelligent work happens here, and only here. A Sensei receives a work order
 with an assembled Context and produces Artifacts plus a Project State delta.

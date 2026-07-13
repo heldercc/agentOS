@@ -16,7 +16,7 @@ import type { EffortLevel } from "./effort.js";
  * how it moves). The current on-disk shape is baptized v1 — bump ONLY with
  * a registered migration, never silently (RULE C/D, ADR-0023).
  */
-export const DATA_SCHEMA_VERSION = 1;
+export const DATA_SCHEMA_VERSION = 2;
 
 /** A reference to a versioned data element (provenance by reference, never copy). */
 export interface ElementRef {
@@ -38,7 +38,8 @@ export interface ContextElement {
     | "prior-response"
     | "pilot-note"
     | "artifact"
-    | "expertise";
+    | "expertise"
+    | "project-map";
   chars: number;
   selectionReason: string;
 }
@@ -144,7 +145,8 @@ export type WorkOrderKind =
   | "execute"
   | "option"
   | "refine"
-  | "recommend";
+  | "recommend"
+  | "slice";
 
 export interface WorkOrderRecord {
   id: string;
@@ -153,6 +155,8 @@ export interface WorkOrderRecord {
   kind: WorkOrderKind;
   /** Null for kernel-level orders (roster, synthesize). */
   agentId: string | null;
+  /** Approved Project Slice this work belongs to; absent before a Map exists. */
+  sliceId?: string;
   model: string;
   effortLevel: string;
   createdAt: string;
@@ -178,9 +182,10 @@ export interface QuestionNeed {
   iteration: number;
   /** "deferred" = the user declared context sufficient with this still open
    *  (ADR-0020 §3) — kept on file, never silently dropped. */
-  status: "open" | "answered" | "deferred";
+  status: "open" | "answered" | "deferred" | "routed";
   answer?: string;
   answeredAt?: string;
+  routedAt?: string;
 }
 
 export interface QuestionsFile {
@@ -196,6 +201,43 @@ export interface ProjectStateDoc {
   unresolvedQuestions: string[];
   constraints: string[];
   nextAction: string;
+  /** Reference only: detailed topology stays in the governed Project Map. */
+  projectMap?: { version: number; path: string };
+}
+
+export type ProjectSliceStatus =
+  | "proposed"
+  | "ready"
+  | "active"
+  | "blocked"
+  | "done"
+  | "affected"
+  | "abandoned";
+
+/** Smallest independently governable unit of a project; domain-free. */
+export interface ProjectSlice {
+  id: string;
+  title: string;
+  purpose: string;
+  parentId: string | null;
+  dependsOn: string[];
+  expectedArtifacts: string[];
+  materialDecisions: string[];
+  status: ProjectSliceStatus;
+  statusReason?: string;
+}
+
+/** Detailed governed topology referenced by the smallest sufficient State. */
+export interface ProjectMap {
+  projectId: string;
+  version: number;
+  schemaVersion: 1;
+  status: "candidate" | "approved";
+  createdAt: string;
+  basedOn: { projectIteration: number; priorMapVersion: number | null };
+  slices: ProjectSlice[];
+  proposalWorkOrderId: string | null;
+  approvedAt?: string;
 }
 
 /** A candidate Project State awaiting the Pilot's approval (steps 9–10). */
@@ -266,6 +308,7 @@ export interface DecisionSurface {
   selected?: { optionId: string; version: number };
   createdAt: string;
   decidedAt?: string;
+  sourceQuestionId?: string;
 }
 
 /**
@@ -286,6 +329,7 @@ export interface EvidenceEvent {
     | "roster_ready"
     | "consulted"
     | "question_answered"
+    | "question_routed_to_decide"
     | "context_sufficient"
     | "reconsulted"
     | "candidate_built"
@@ -312,6 +356,9 @@ export interface EvidenceEvent {
     | "decision_opened"
     | "option_refined"
     | "option_selected"
+    | "project_map_proposed"
+    | "project_map_approved"
+    | "project_slice_transitioned"
     /** The Pilot halted an in-flight operation (parecer 2026-07-12,
      *  LIVE EXECUTION OBSERVABILITY, ponto E) — actor is always the Pilot. */
     | "operation_cancelled";
@@ -348,12 +395,12 @@ export interface OperationActual {
   /** ms from startOp to the first phase change away from "queued" — real
    *  shell-side latency (context assembly, etc.) before the first runtime
    *  call is even issued. */
-  queueMs: number;
+  queueMs: number | null;
   /** ms from startOp to the first "response-received" phase — the Pilot's
    *  real wait for the first honest sign the model produced something,
    *  stronger evidence than the shell's own "launching"/"awaiting-model"
    *  guesses about the runtime. */
-  firstFeedbackMs: number;
+  firstFeedbackMs: number | null;
   phases: { phase: string; at: string }[];
   workOrdersPlanned: number;
   workOrdersDone: number;

@@ -49,8 +49,28 @@ import {
   workspaceRoot,
   workOrdersDir,
 } from "./paths.js";
-import { abs, readJson, readText, sha256, writeArtifactOnce, writeJson } from "./stores.js";
-import { OpCancelledError, type Runtime } from "./runtime.js";
+import { abs, readJson, readJsonl, readText, sha256, writeArtifactOnce, writeJson } from "./stores.js";
+import { OpCancelledError, OpTimeoutError, type Runtime } from "./runtime.js";
+import {
+  validateApprovedState,
+  validateCandidateState,
+  validateDecisionSurface,
+  validateOperationActual,
+  validateProject,
+  validateProjectMapRecord,
+  validateQuestionsFile,
+  validateWorkOrderRecord,
+} from "./validate.js";
+import { withTransition } from "./transitions.js";
+import {
+  candidateProjectMapFromText,
+  compareProjectMaps,
+  nextUnblockedSlice,
+  normalizeProjectMap,
+  transitionProjectSlice,
+  validateProjectMap,
+  type ProjectMapChange,
+} from "./project-engine.js";
 import type {
   AgentRole,
   ApprovedState,
@@ -63,9 +83,10 @@ import type {
   OptionRecord,
   OptionSeedRef,
   Project,
+  ProjectMap,
+  ProjectSliceStatus,
   ProjectStateDoc,
   QuestionNeed,
-  QuestionsFile,
   RosterFile,
   WorkOrderKind,
   WorkOrderRecord,
@@ -157,7 +178,8 @@ export function listProjects(): Project[] {
 }
 
 export function getProject(projectId: string): Project {
-  return readJson<Project>(abs(projectDir(projectId), "project.json"));
+  const path = abs(projectDir(projectId), "project.json");
+  return validateProject(readJson<unknown>(path), path);
 }
 
 // ---------------------------------------------------------------------------
@@ -170,7 +192,7 @@ export function readRoster(projectId: string): RosterFile | null {
 
 export function readQuestions(projectId: string): QuestionNeed[] {
   const p = abs(projectDir(projectId), "questions.json");
-  return existsSync(p) ? readJson<QuestionsFile>(p).questions : [];
+  return existsSync(p) ? validateQuestionsFile(readJson<unknown>(p), p).questions : [];
 }
 
 function writeQuestions(projectId: string, questions: QuestionNeed[]): void {
@@ -189,14 +211,30 @@ export function topOpenQuestion(projectId: string): QuestionNeed | null {
   return openQuestions(projectId)[0] ?? null;
 }
 
+export function topOpenQuestions(projectId: string, limit = 3): QuestionNeed[] {
+  return openQuestions(projectId).slice(0, Math.max(1, limit));
+}
+
+export function routeQuestionToDecision(projectId: string, questionId: string, scripted = false): QuestionNeed {
+  const project = getProject(projectId);
+  const questions = readQuestions(projectId);
+  const question = questions.find((item) => item.id === questionId);
+  if (!question || question.status !== "open") throw new Error(`open question ${questionId} not found`);
+  question.status = "routed";
+  question.routedAt = nowIso();
+  writeQuestions(projectId, questions);
+  event(project, "pilot", "question_routed_to_decide", scripted, { questionId, note: question.text });
+  return question;
+}
+
 export function readCandidate(projectId: string): CandidateState | null {
   const p = abs(stateDir(projectId), "candidate.json");
-  return existsSync(p) ? readJson<CandidateState>(p) : null;
+  return existsSync(p) ? validateCandidateState(readJson<unknown>(p), p) : null;
 }
 
 export function readApproved(projectId: string): ApprovedState | null {
   const p = abs(stateDir(projectId), "approved.json");
-  return existsSync(p) ? readJson<ApprovedState>(p) : null;
+  return existsSync(p) ? validateApprovedState(readJson<unknown>(p), p) : null;
 }
 
 /**
@@ -274,7 +312,7 @@ export function readWorkOrders(projectId: string, iteration: number): WorkOrderR
   const out: WorkOrderRecord[] = [];
   for (const wo of readdirSync(dir).sort()) {
     const p = abs(dir, wo, "workorder.json");
-    if (existsSync(p)) out.push(readJson<WorkOrderRecord>(p));
+    if (existsSync(p)) out.push(validateWorkOrderRecord(readJson<unknown>(p), p));
   }
   return out;
 }
@@ -484,13 +522,49 @@ async function runWorkOrder(args: {
   runtime: Runtime;
   onPhase?: OnPhase;
   onMeter?: OnMeter;
-}): Promise<{ record: WorkOrderRecord; text: string; meter: MeterRecord; retriesUsed: number }> {
+}): Promise<{ record: WorkOrderRecord; text: string; meter: MeterRecord; retriesUsed: number; reused: boolean }> {
   const spec = effortSpec(args.level);
   const iteration = args.project.iteration;
   const wosDir = workOrdersDir(args.project.id, iteration);
   mkdirSync(wosDir, { recursive: true });
+  const suffix = `${args.kind}${args.agentId ? `-${args.agentId}` : ""}`;
+  const existingDirs = readdirSync(wosDir).filter((name) => name.endsWith(`-${suffix}`)).sort();
+  // v0 resumability is deliberately scoped to governed execution, where
+  // immutable Artifact reuse is both necessary and fully proven. Reusing a
+  // completed semantic consult/option from a different human relaunch would
+  // be stale-context corruption; those kinds await explicit operation-group
+  // identity rather than guessing by suffix.
+  const resumable = args.kind === "execute" && readdirSync(wosDir).some((name) => {
+    const recordPath = abs(wosDir, name, "workorder.json");
+    if (!existsSync(recordPath)) return false;
+    const record = validateWorkOrderRecord(readJson<unknown>(recordPath), recordPath);
+    return record.status === "interrupted" || record.status === "timed-out" || record.status === "error";
+  });
+  if (resumable) {
+    const doneDir = existingDirs.find((name) => {
+      const path = abs(wosDir, name, "workorder.json");
+      return existsSync(path) && validateWorkOrderRecord(readJson<unknown>(path), path).status === "done";
+    });
+    if (doneDir) {
+      const donePath = abs(wosDir, doneDir);
+      const recordPath = abs(donePath, "workorder.json");
+      return {
+        record: validateWorkOrderRecord(readJson<unknown>(recordPath), recordPath),
+        text: readText(abs(donePath, "response.md")),
+        meter: readJson<MeterRecord>(abs(donePath, "meter.json")),
+        retriesUsed: 0,
+        reused: true,
+      };
+    }
+  }
+  const restartDir = resumable ? existingDirs.find((name) => {
+    const path = abs(wosDir, name, "workorder.json");
+    if (!existsSync(path)) return false;
+    const status = validateWorkOrderRecord(readJson<unknown>(path), path).status;
+    return status === "interrupted" || status === "timed-out" || status === "error";
+  }) : undefined;
   const seq = readdirSync(wosDir).length + 1;
-  const woId = `${String(seq).padStart(2, "0")}-${args.kind}${args.agentId ? `-${args.agentId}` : ""}`;
+  const woId = restartDir ?? `${String(seq).padStart(2, "0")}-${suffix}`;
   const dir = abs(wosDir, woId);
   mkdirSync(dir, { recursive: true });
 
@@ -512,21 +586,26 @@ async function runWorkOrder(args: {
     });
   }
 
+  const activeSlice = args.kind === "slice" ? null : nextProjectSlice(args.project.id);
   const base: Omit<WorkOrderRecord, "status"> = {
     id: woId,
     projectId: args.project.id,
     iteration,
     kind: args.kind,
     agentId: args.agentId,
+    ...(activeSlice ? { sliceId: activeSlice.id } : {}),
     model: spec.workerModel,
     effortLevel: args.level,
     createdAt: nowIso(),
   };
 
+  writeJson(abs(dir, "workorder.json"), { ...base, status: "queued" } satisfies WorkOrderRecord);
+
   let lastError = "";
   for (let attempt = 0; attempt <= spec.retryBudget; attempt++) {
     const t0 = Date.now();
     try {
+      writeJson(abs(dir, "workorder.json"), { ...base, status: "running" } satisfies WorkOrderRecord);
       const res = await args.runtime.generate({
         system: args.system,
         prompt: args.ctx.text,
@@ -560,7 +639,7 @@ async function runWorkOrder(args: {
       // fires "persisting" once, for the governed write that actually
       // matters, after it has validated/parsed the text.
       writeJson(abs(dir, "workorder.json"), record);
-      return { record, text: res.text, meter, retriesUsed: attempt };
+      return { record, text: res.text, meter, retriesUsed: attempt, reused: false };
     } catch (e) {
       // A cancellation is the Pilot's act, not a failure: it must not burn
       // the retry budget, must not be disguised as "error", and must reach
@@ -570,6 +649,15 @@ async function runWorkOrder(args: {
         const record: WorkOrderRecord = { ...base, status: "interrupted" };
         writeJson(abs(dir, "workorder.json"), record);
         throw e;
+      }
+      if (e instanceof OpTimeoutError || (e as { name?: string } | null)?.name === "OpTimeoutError") {
+        lastError = e instanceof Error ? e.message : String(e);
+        if (attempt === spec.retryBudget) {
+          const record: WorkOrderRecord = { ...base, status: "timed-out", error: lastError };
+          writeJson(abs(dir, "workorder.json"), record);
+          throw e;
+        }
+        continue;
       }
       lastError = e instanceof Error ? e.message : String(e);
     }
@@ -612,10 +700,11 @@ export function appendOperationActual(a: OperationActual): void {
 export function readOperationActuals(projectId: string): OperationActual[] {
   const path = abs(projectDir(projectId), "operations.jsonl");
   if (!existsSync(path)) return [];
-  return readText(path)
-    .split(/\r?\n/)
-    .filter((l) => l.trim() !== "")
-    .map((l) => JSON.parse(l) as OperationActual);
+  // Torn-tail tolerant (ADR-0023 RULE D): a crash mid-append must not make
+  // the whole log unreadable — only the last line may be skipped.
+  return readJsonl<unknown>(path).map((actual, index) =>
+    validateOperationActual(actual, `${path}[${index}]`),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -635,6 +724,22 @@ function baseContext(project: Project, budget: number): ContextBuilder {
     reason: "the project is the subject of every work order",
     required: true,
   });
+  const map = readProjectMap(project.id);
+  const slice = map ? nextUnblockedSlice(map) : null;
+  if (map && slice) {
+    b.add({
+      kind: "project-map",
+      id: `project-map-v${map.version}`,
+      absPath: mapCurrentPath(project.id),
+      content: JSON.stringify({
+        version: map.version,
+        activeSlice: slice,
+        dependencies: map.slices.filter((item) => slice.dependsOn.includes(item.id)),
+      }, null, 2),
+      reason: "the approved Slice bounds this Work Order and its immediate dependencies",
+      required: true,
+    });
+  }
   return b;
 }
 
@@ -818,6 +923,147 @@ function mergeQuestions(
 }
 
 // ---------------------------------------------------------------------------
+// Project Engine — an internal Kernel mechanism (ADR-0024). The pure graph
+// mechanics live in project-engine.ts; only this Kernel boundary may issue a
+// Slicer Work Order, persist a Map version or write its evidence.
+
+const SLICER_SYSTEM =
+  "You are a temporary Slicer role under an AgentOS Kernel Work Order. " +
+  "Propose a compact, domain-neutral Project Map: 3-8 independently governable " +
+  "slices, honest dependencies, expected artifacts and material decisions. " +
+  "Do not execute work, choose project direction, create child projects, or " +
+  "invent domain facts. IDs are stable kebab-case. End with exactly one fenced " +
+  "```json block: {\"slices\":[{\"id\",\"title\",\"purpose\",\"parentId\":null," +
+  "\"dependsOn\":[],\"expectedArtifacts\":[],\"materialDecisions\":[]}]}. " + LANG_RULE;
+
+function mapCandidatePath(projectId: string): string {
+  return abs(stateDir(projectId), "project-map-candidate.json");
+}
+function mapCurrentPath(projectId: string): string {
+  return abs(stateDir(projectId), "project-map.json");
+}
+function mapVersionPath(projectId: string, version: number): string {
+  return abs(stateDir(projectId), "maps", `v${version}.json`);
+}
+
+export function readProjectMap(projectId: string): ProjectMap | null {
+  const path = mapCurrentPath(projectId);
+  return existsSync(path) ? validateProjectMap(validateProjectMapRecord(readJson<unknown>(path), path)) : null;
+}
+
+export function readCandidateProjectMap(projectId: string): ProjectMap | null {
+  const path = mapCandidatePath(projectId);
+  return existsSync(path) ? validateProjectMap(validateProjectMapRecord(readJson<unknown>(path), path)) : null;
+}
+
+export async function runProjectSlicer(args: {
+  projectId: string;
+  level: EffortLevel;
+  runtime: Runtime;
+  scripted?: boolean;
+  onPhase?: OnPhase;
+  onMeter?: OnMeter;
+}): Promise<{ candidate: ProjectMap; changes: ProjectMapChange[] }> {
+  const project = getProject(args.projectId);
+  const spec = effortSpec(args.level);
+  const current = readProjectMap(project.id);
+  const b = baseContext(project, spec.contextBudgetChars);
+  addApprovedState(b, project, false);
+  addAnswers(b, project, false);
+  addPilotNotes(b, project);
+  const ctx = b.build();
+  const { record, text } = await runWorkOrder({
+    project,
+    kind: "slice",
+    agentId: null,
+    system: SLICER_SYSTEM,
+    ctx,
+    level: args.level,
+    runtime: args.runtime,
+    ...phaseCallbacks(args.onPhase, args.onMeter),
+  });
+  args.onPhase?.("validating-parsing", record.id, "");
+  const candidate = candidateProjectMapFromText({
+    text,
+    projectId: project.id,
+    projectIteration: project.iteration,
+    priorMapVersion: current?.version ?? null,
+    workOrderId: record.id,
+  });
+  args.onPhase?.("persisting", record.id, "");
+  writeJson(mapCandidatePath(project.id), candidate);
+  event(project, "kernel", "project_map_proposed", args.scripted ?? false, {
+    workOrderId: record.id,
+    note: `${candidate.slices.length} slices; ${compareProjectMaps(current, candidate).length} material changes`,
+  });
+  return { candidate, changes: compareProjectMaps(current, candidate) };
+}
+
+function persistApprovedMap(
+  project: Project,
+  map: ProjectMap,
+  action: "project_map_approved" | "project_slice_transitioned",
+  note: string,
+  scripted: boolean,
+): ProjectMap {
+  const approvedState = readApproved(project.id);
+  if (!approvedState) throw new Error("approve Project State before making a Project Map authoritative");
+  approvedState.state.projectMap = {
+    version: map.version,
+    path: `state/maps/v${map.version}.json`,
+  };
+  const currentPath = mapCurrentPath(project.id);
+  const historyPath = mapVersionPath(project.id, map.version);
+  const approvedPath = abs(stateDir(project.id), "approved.json");
+  const evidencePath = abs(projectDir(project.id), "evidence.jsonl");
+  withTransition(workspaceRoot(), `${action}-${project.id}-v${map.version}`, [currentPath, historyPath, approvedPath, evidencePath], () => {
+    writeArtifactOnce(historyPath, JSON.stringify(map, null, 2) + "\n");
+    writeJson(currentPath, map);
+    writeJson(approvedPath, approvedState);
+    event(project, action === "project_map_approved" ? "pilot" : "kernel", action, scripted, { note });
+  });
+  return map;
+}
+
+export function approveCandidateProjectMap(
+  projectId: string,
+  expectedCurrentVersion: number | null,
+  scripted = false,
+): ProjectMap {
+  const project = getProject(projectId);
+  const current = readProjectMap(projectId);
+  if ((current?.version ?? null) !== expectedCurrentVersion) {
+    throw new Error(`Project Map conflict: expected ${expectedCurrentVersion ?? "none"}, current is ${current?.version ?? "none"}`);
+  }
+  const candidate = readCandidateProjectMap(projectId);
+  if (!candidate) throw new Error("no Candidate Project Map awaiting approval");
+  if (candidate.basedOn.priorMapVersion !== expectedCurrentVersion) throw new Error("Candidate Project Map was built from a stale version");
+  const approved = normalizeProjectMap({ ...candidate, status: "approved", approvedAt: nowIso() });
+  return persistApprovedMap(project, approved, "project_map_approved", `${approved.slices.length} slices approved`, scripted);
+}
+
+export function moveProjectSlice(args: {
+  projectId: string;
+  sliceId: string;
+  to: Extract<ProjectSliceStatus, "ready" | "active" | "done" | "abandoned">;
+  expectedMapVersion: number;
+  reason?: string;
+  scripted?: boolean;
+}): ProjectMap {
+  const project = getProject(args.projectId);
+  const current = readProjectMap(project.id);
+  if (!current) throw new Error("project has no approved Project Map");
+  if (current.version !== args.expectedMapVersion) throw new Error(`Project Map conflict: expected v${args.expectedMapVersion}, current is v${current.version}`);
+  const next = transitionProjectSlice({ map: current, sliceId: args.sliceId, to: args.to, ...(args.reason ? { reason: args.reason } : {}) });
+  return persistApprovedMap(project, next, "project_slice_transitioned", `${args.sliceId}: ${args.to}${args.reason ? ` — ${args.reason}` : ""}`, args.scripted ?? false);
+}
+
+export function nextProjectSlice(projectId: string): ReturnType<typeof nextUnblockedSlice> {
+  const map = readProjectMap(projectId);
+  return map ? nextUnblockedSlice(map) : null;
+}
+
+// ---------------------------------------------------------------------------
 // Steps 2–5 — convene the roster (once) and consult every agent through the
 // runtime; their Question Needs aggregate into the single visible interview.
 
@@ -913,18 +1159,39 @@ export async function answerQuestion(args: {
   onPhase?: OnPhase;
   onMeter?: OnMeter;
 }): Promise<{ reconsulted: string[] }> {
+  return answerQuestions({
+    projectId: args.projectId,
+    answers: [{ questionId: args.questionId, answer: args.answer }],
+    runtime: args.runtime,
+    ...(args.scripted !== undefined ? { scripted: args.scripted } : {}),
+    ...phaseCallbacks(args.onPhase, args.onMeter),
+  });
+}
+
+export async function answerQuestions(args: {
+  projectId: string;
+  answers: { questionId: string; answer: string }[];
+  runtime: Runtime;
+  scripted?: boolean;
+  onPhase?: OnPhase;
+  onMeter?: OnMeter;
+}): Promise<{ reconsulted: string[] }> {
   const scripted = args.scripted ?? false;
   const project = getProject(args.projectId);
   const questions = readQuestions(project.id);
-  const q = questions.find((x) => x.id === args.questionId);
-  if (!q) throw new Error(`unknown question ${args.questionId}`);
-  if (q.status === "answered") throw new Error(`question ${q.id} is already answered`);
-
-  q.status = "answered";
-  q.answer = args.answer.trim();
-  q.answeredAt = nowIso();
+  const answered: QuestionNeed[] = [];
+  for (const item of args.answers) {
+    const q = questions.find((x) => x.id === item.questionId);
+    if (!q) throw new Error(`unknown question ${item.questionId}`);
+    if (q.status !== "open") throw new Error(`question ${q.id} is not open`);
+    if (!item.answer.trim()) throw new Error(`answer for ${q.id} is empty`);
+    q.status = "answered";
+    q.answer = item.answer.trim();
+    q.answeredAt = nowIso();
+    answered.push(q);
+  }
   writeQuestions(project.id, questions);
-  event(project, "pilot", "question_answered", scripted, { questionId: q.id });
+  for (const q of answered) event(project, "pilot", "question_answered", scripted, { questionId: q.id });
 
   // Automatic re-consult of the agents whose need this was (§8) — internal
   // movement runs at the Pilot's standing "questions" effort (ponto D): his
@@ -933,17 +1200,19 @@ export async function answerQuestion(args: {
   const spec = effortSpec(level);
   const roster = readRoster(project.id);
   const reconsulted: string[] = [];
-  for (const agentId of q.askedBy) {
+  const agents = [...new Set(answered.flatMap((question) => question.askedBy))];
+  for (const agentId of agents) {
     const agent = roster?.agents.find((a) => a.id === agentId);
     if (!agent) continue;
     const b = baseContext(project, spec.contextBudgetChars);
     addRole(b, project, agent);
+    const agentAnswers = answered.filter((question) => question.askedBy.includes(agentId));
     b.add({
       kind: "answer",
-      id: q.id,
+      id: `batch-${agentAnswers.map((question) => question.id).join("-")}`,
       absPath: abs(projectDir(project.id), "questions.json"),
-      content: `Q (yours): ${q.text}\nA (from the user): ${q.answer}`,
-      reason: "the answered need that triggered this re-consultation",
+      content: agentAnswers.map((question) => `Q (yours): ${question.text}\nA (from the user): ${question.answer}`).join("\n\n"),
+      reason: "the coherent answer batch that triggered this single re-consultation",
       required: true,
     });
     addApprovedState(b, project, false);
@@ -968,7 +1237,7 @@ export async function answerQuestion(args: {
     event(project, "kernel", "reconsulted", scripted, {
       workOrderId: record.id,
       agentId: agent.id,
-      questionId: q.id,
+      questionId: agentAnswers.map((question) => question.id).join(","),
     });
   }
   return { reconsulted };
@@ -1151,18 +1420,26 @@ export function decideCandidate(
       approvedAt: candidate.decidedAt,
       state: candidate.state,
     };
-    writeJson(abs(stateDir(projectId), "approved.json"), approved);
-    writeJson(
-      abs(stateDir(projectId), "history", `approved-it${candidate.iteration}.json`),
-      approved,
-    );
-    event(project, "pilot", "state_approved", scripted, {});
+    const approvedPath = abs(stateDir(projectId), "approved.json");
+    const historyPath = abs(stateDir(projectId), "history", `approved-it${candidate.iteration}.json`);
+    const candidatePath = abs(stateDir(projectId), "candidate.json");
+    const evidencePath = abs(projectDir(projectId), "evidence.jsonl");
+    withTransition(workspaceRoot(), `approve-state-${projectId}-${candidate.iteration}`, [approvedPath, historyPath, candidatePath, evidencePath], () => {
+      writeJson(approvedPath, approved);
+      writeJson(historyPath, approved);
+      event(project, "pilot", "state_approved", scripted, {});
+      writeJson(candidatePath, candidate);
+    });
   } else {
     candidate.status = "rejected";
     if (note) candidate.rejectionNote = note;
-    event(project, "pilot", "state_rejected", scripted, note ? { note } : {});
+    const candidatePath = abs(stateDir(projectId), "candidate.json");
+    const evidencePath = abs(projectDir(projectId), "evidence.jsonl");
+    withTransition(workspaceRoot(), `reject-state-${projectId}-${candidate.iteration}`, [candidatePath, evidencePath], () => {
+      event(project, "pilot", "state_rejected", scripted, note ? { note } : {});
+      writeJson(candidatePath, candidate);
+    });
   }
-  writeJson(abs(stateDir(projectId), "candidate.json"), candidate);
 }
 
 // ---------------------------------------------------------------------------
@@ -1209,7 +1486,7 @@ export async function runExecute(args: {
     }
     addPilotNotes(b, project);
     const ctx = b.build();
-    const { record, text, meter, retriesUsed: r } = await runWorkOrder({
+    const { record, text, meter, retriesUsed: r, reused } = await runWorkOrder({
       project,
       kind: "execute",
       agentId: agent.id,
@@ -1220,15 +1497,18 @@ export async function runExecute(args: {
       ...phaseCallbacks(args.onPhase, args.onMeter),
     });
     retriesUsed += r;
-    meters.push(meter);
+    if (!reused) meters.push(meter);
+    const artifactPath = abs(artifactsDir(project.id, project.iteration), `${agent.id}.md`);
+    const provenancePath = abs(artifactsDir(project.id, project.iteration), `${agent.id}.provenance.json`);
+    if (reused && existsSync(artifactPath) && existsSync(provenancePath)) {
+      artifacts.push(artifactPath);
+      continue;
+    }
     // No "validating-parsing" here — EXECUTE_SYSTEM returns the artifact
     // verbatim, nothing is parsed. What follows (the artifact + provenance
     // writes below) is real additional persistence beyond runWorkOrder's own
     // workorder.json, so "persisting" fires again, honestly, right before it.
     args.onPhase?.("persisting", record.id, agent.id);
-    const artifactPath = abs(artifactsDir(project.id, project.iteration), `${agent.id}.md`);
-    writeArtifactOnce(artifactPath, text);
-    artifacts.push(artifactPath);
     // Provenance by reference, on the artifact itself (gap audit): which
     // human judgement shaped this output, at which version, and why it was
     // selected — the artifact text stays byte-faithful, the sidecar declares.
@@ -1257,14 +1537,16 @@ export async function runExecute(args: {
         senseiTitle: r.senseiTitle,
       })),
     };
-    writeJson(
-      abs(artifactsDir(project.id, project.iteration), `${agent.id}.provenance.json`),
-      provenance,
-    );
-    event(project, "kernel", "artifact_returned", scripted, {
-      workOrderId: record.id,
-      agentId: agent.id,
+    const evidencePath = abs(projectDir(project.id), "evidence.jsonl");
+    withTransition(workspaceRoot(), `return-artifact-${project.id}-${project.iteration}-${agent.id}`, [artifactPath, provenancePath, evidencePath], () => {
+      writeArtifactOnce(artifactPath, text);
+      writeJson(provenancePath, provenance);
+      event(project, "kernel", "artifact_returned", scripted, {
+        workOrderId: record.id,
+        agentId: agent.id,
+      });
     });
+    artifacts.push(artifactPath);
   }
   return { artifacts, meters, retriesUsed };
 }
@@ -1492,7 +1774,10 @@ export function readSurfaces(projectId: string): DecisionSurface[] {
   return readdirSync(dir)
     .filter((f) => f.endsWith(".json"))
     .sort()
-    .map((f) => readJson<DecisionSurface>(abs(dir, f)));
+    .map((f) => {
+      const path = abs(dir, f);
+      return validateDecisionSurface(readJson<unknown>(path), path);
+    });
 }
 
 export function openSurface(projectId: string): DecisionSurface | null {
@@ -1560,11 +1845,23 @@ export async function runDecisionSurface(args: {
   }
   const spec = effortSpec(args.level);
   const approved = readApproved(project.id);
+  const routedQuestion = readQuestions(project.id).find((question) => question.status === "routed");
+  const activeSlice = nextProjectSlice(project.id);
+  const decidedQuestions = new Set(readSurfaces(project.id).filter((surface) => surface.status === "decided").map((surface) => surface.decision));
+  const sliceDecision = activeSlice?.materialDecisions.find((item) => !decidedQuestions.has(item));
 
-  const decision = approved
+  const decision = routedQuestion
+    ? routedQuestion.text
+    : sliceDecision
+    ? sliceDecision
+    : approved
     ? `Como concretizar a próxima ação: ${approved.state.nextAction}`
     : `A direção fundamental de "${project.name}"`;
-  const why = approved
+  const why = routedQuestion
+    ? "o Pilot decidiu transformar esta incerteza numa escolha concreta em vez de responder do zero"
+    : sliceDecision
+    ? `esta é a próxima decisão material preparada para a fatia ${activeSlice?.title ?? "ativa"}`
+    : approved
     ? "a próxima ação aprovada admite mais do que um caminho honesto"
     : "a intenção fundadora admite mais do que uma direção honesta";
 
@@ -1708,6 +2005,7 @@ export async function runDecisionSurface(args: {
     recommendation,
     status: "open",
     createdAt: nowIso(),
+    ...(routedQuestion ? { sourceQuestionId: routedQuestion.id } : {}),
   };
   args.onPhase?.("persisting", lastWoId, "");
   writeSurface(ds);
@@ -1858,6 +2156,16 @@ export function selectOption(
   ds.status = "decided";
   ds.decidedAt = nowIso();
   writeSurface(ds);
+  if (ds.sourceQuestionId) {
+    const questions = readQuestions(projectId);
+    const routed = questions.find((question) => question.id === ds.sourceQuestionId);
+    if (routed?.status === "routed") {
+      routed.status = "answered";
+      routed.answer = `Decidido na ${ds.id}: ${chosen.title} (v${version})`;
+      routed.answeredAt = nowIso();
+      writeQuestions(projectId, questions);
+    }
+  }
   event(project, "pilot", "option_selected", scripted, {
     dsId,
     optionId,
@@ -1934,7 +2242,8 @@ function woDetail(
 ): Partial<StoryItem> {
   const dir = abs(workOrdersDir(projectId, iteration), workOrderId);
   if (!existsSync(abs(dir, "workorder.json"))) return {};
-  const record = readJson<WorkOrderRecord>(abs(dir, "workorder.json"));
+  const recordPath = abs(dir, "workorder.json");
+  const record = validateWorkOrderRecord(readJson<unknown>(recordPath), recordPath);
   const out: Partial<StoryItem> = {
     workKind: record.kind,
     effortLevel: record.effortLevel,
