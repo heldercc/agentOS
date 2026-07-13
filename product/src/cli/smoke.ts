@@ -31,6 +31,7 @@ import {
   readWorkOrders,
   recordSeedEvidenceGoverned,
   refineOption,
+  reopenDeferredQuestions,
   reopenProject,
   reviseSeedGoverned,
   runCandidate,
@@ -831,6 +832,25 @@ async function main(): Promise<void> {
     "21d. deferred questions are kept, never dropped",
     readQuestions(p2.id).some((q) => q.status === "deferred"),
   );
+
+  // Governed back-and-forth (ADR-0022 decision 14): reopening deferred
+  // questions is pure navigation — Compreender returns, at ZERO token cost.
+  const wosBeforeReopen = readWorkOrders(p2.id, 1).length;
+  const reopenedN = reopenDeferredQuestions(p2.id, true);
+  check("21e. reopening returns every deferred question", reopenedN === deferredN && openQuestions(p2.id).length === deferredN);
+  check("21f. the stage returns to interview", stageOf(p2.id) === "interview");
+  check(
+    "21g. navigation costs zero tokens — no new work orders",
+    readWorkOrders(p2.id, 1).length === wosBeforeReopen,
+  );
+  check(
+    "21h. the reopening is governed evidence, actor pilot",
+    readEvents(p2.id).some((e) => e.action === "questions_reopened" && e.actor === "pilot"),
+  );
+  // Defer again so the sufficiency flow below continues exactly as before.
+  declareContextSufficient(p2.id, "enough again for the smoke", true);
+  check("21i. sufficiency can be declared again after reopening", stageOf(p2.id) === "candidate");
+
   await runCandidate({ projectId: p2.id, level: "minimal", runtime, scripted: true });
   const synthEnough = readWorkOrders(p2.id, 1)
     .filter((w) => w.kind === "synthesize")

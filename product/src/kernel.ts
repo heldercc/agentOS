@@ -1272,6 +1272,30 @@ export function declareContextSufficient(
   return deferred;
 }
 
+/**
+ * The mirror of declareContextSufficient — governed back-and-forth (ADR-0022
+ * decision 14): the Pilot returns to Compreender by REOPENING his deferred
+ * questions. A pure data move: zero tokens, zero Work Orders, zero model
+ * calls — navigation never spends; only new consults do.
+ */
+export function reopenDeferredQuestions(projectId: string, scripted = false): number {
+  const project = getProject(projectId);
+  const questions = readQuestions(project.id);
+  let reopened = 0;
+  for (const q of questions) {
+    if (q.status !== "deferred") continue;
+    q.status = "open";
+    reopened += 1;
+  }
+  if (reopened > 0) {
+    writeQuestions(project.id, questions);
+    event(project, "pilot", "questions_reopened", scripted, {
+      note: `${reopened} pergunta(s) adiada(s) reaberta(s) pela minha mão — voltar a Compreender`,
+    });
+  }
+  return reopened;
+}
+
 // ---------------------------------------------------------------------------
 // Step 9 — build the candidate Project State.
 

@@ -331,6 +331,9 @@ export interface EvidenceEvent {
     | "question_answered"
     | "question_routed_to_decide"
     | "context_sufficient"
+    /** The mirror of context_sufficient: deferred questions reopened by the
+     *  Pilot's hand — governed back-and-forth, zero tokens (ADR-0022 §14). */
+    | "questions_reopened"
     | "reconsulted"
     | "candidate_built"
     | "state_approved"

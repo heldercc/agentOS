@@ -46,6 +46,7 @@ import {
   refineOption,
   reopenProject,
   declareContextSufficient,
+  reopenDeferredQuestions,
   recordSeedEvidenceGoverned,
   runCandidate,
   runConsult,
@@ -582,6 +583,7 @@ function stateView(projectId: string): unknown {
     roster: roster?.agents ?? null,
     interview: {
       open: openQuestions(projectId).length,
+      deferred: questions.filter((q) => q.status === "deferred").length,
       top,
       topThree,
       answered: questions
@@ -916,6 +918,13 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (!guardActive(b["project"] ?? "", res)) return;
     const n = declareContextSufficient(b["project"] ?? "", b["note"]?.trim() || undefined);
     json(res, 200, { deferred: n });
+    return;
+  }
+  if (req.method === "POST" && url.pathname === "/api/interview/reopen") {
+    const b = await body(req);
+    if (!guardActive(b["project"] ?? "", res)) return;
+    const n = reopenDeferredQuestions(b["project"] ?? "");
+    json(res, 200, { reopened: n });
     return;
   }
   if (req.method === "POST" && url.pathname === "/api/hi/seed/evidence") {
@@ -1743,22 +1752,22 @@ function primaryCard() {
         '<button class="ghost" style="margin-top:6px" onclick="routeToDecide(&quot;' + esc(t.id) + '&quot;)">Levar para Decidir — quero opções</button></div>';
     });
     h = primary("need", batch.length + (batch.length === 1 ? " pergunta" : " perguntas") + " nesta ronda",
-      questionsHtml +
+      questionsHtml + effortQuestionsInline(s) +
       '<div class="row" style="margin-top:12px"><button onclick="answerBatch(' + batch.length + ')">Responder às ' + batch.length + '</button>' +
-      '<button class="ghost" onclick="enough()">Chega — constrói com o que tens</button></div>' +
-      '<div class="kv" style="margin-top:6px">Cada agente recebe o lote relevante uma única vez. O que não souberes pode virar opções em Decidir.</div>');
+      '<button class="ghost" onclick="enough()">Chega — segue para Decidir com o que tens</button></div>' +
+      '<div class="kv" style="margin-top:6px">Cada agente recebe o lote relevante uma única vez. O que não souberes pode virar opções em Decidir; o que adiares podes reabrir lá — navegar não gasta tokens.</div>');
   } else if (s.stage === "interview" && s.interview.top) {
     var t = s.interview.top;
     h = primary("need", "Uma pergunta de cada vez",
       '<div class="q">' + esc(t.text) + "</div>" +
       '<div class="kv">' + s.interview.open + " em aberto (as restantes esperam a vez)</div>" +
-      '<label>A tua resposta</label><textarea id="answer"></textarea>' +
+      '<label>A tua resposta</label><textarea id="answer"></textarea>' + effortQuestionsInline(s) +
       '<div class="row" style="margin-top:10px"><button onclick="answer(\\'' + esc(t.id) + '\\')">Responder</button>' +
-      '<button class="ghost" onclick="enough()">Chega — constrói com o que tens</button></div>' +
+      '<button class="ghost" onclick="enough()">Chega — segue para Decidir com o que tens</button></div>' +
       '<div class="kv" style="margin-top:6px">Ao responder, quem perguntou volta a pensar sozinho. ' +
       "Declarar suficiência é teu por direito: o que ficar em aberto fica adiado e visível, nunca inventado.</div>");
   } else if (s.stage === "decide" && s.surface) {
-    h = decisionSurfaceCard(s.surface);
+    h = decisionSurfaceCard(s.surface) + reopenDeferredBlock(s);
   } else if (s.stage === "candidate") {
     var rej = s.candidate && s.candidate.status === "rejected" && s.candidate.iteration === s.project.iteration;
     h = primary("act", "Decidir o rumo",
@@ -1772,7 +1781,8 @@ function primaryCard() {
       '<option value="4">4 opções</option></select>' +
       '<div class="row" style="margin-top:12px">' +
       '<button onclick="op(\\'decision\\')">Quero opções para escolher</button>' +
-      '<button class="ghost" onclick="op(\\'candidate\\')">Condensar já o estado</button></div>');
+      '<button class="ghost" onclick="op(\\'candidate\\')">Condensar já o estado</button></div>' +
+      reopenDeferredBlock(s));
   } else if (s.stage === "approve" && s.candidate) {
     h = primary("need", "Aprovas este estado do projeto?",
       stateDoc(s.candidate.state) +
@@ -2089,6 +2099,31 @@ function projectMapCard(s) {
     });
   }
   return h + '</div>';
+}
+
+// Esforço junto à ação (pedido do Piloto, teste real 2026-07-13): a fase
+// Perguntas do perfil é editável AO LADO do botão de responder, não só no
+// editor lá em baixo. Muda o perfil persistente — as re-consultas desta
+// resposta já correm ao nível escolhido.
+function effortQuestionsInline(s) {
+  var ep = s.effortProfile || {};
+  var epq = ep.questions || "low";
+  var h = '<div class="kv" style="margin-top:10px">Esforço das re-consultas (perfil · Perguntas): ' +
+    '<select id="efq-inline" style="width:auto" onchange="setQuestionsEffort(this.value)">';
+  state.levels.forEach(function (l) {
+    h += '<option value="' + esc(l.level) + '"' + (l.level === epq ? " selected" : "") + '>' +
+      esc(l.level) + " · " + esc(l.workerModel) + "</option>";
+  });
+  return h + "</select></div>";
+}
+
+// Back-and-forth governado (ADR-0022, decisão 14): voltar a Compreender é
+// reabrir as perguntas que TU adiaste — movimento de dados puro, zero tokens.
+function reopenDeferredBlock(s) {
+  if (!s.interview || !s.interview.deferred) return "";
+  return '<div class="row" style="margin-top:10px"><button class="ghost" onclick="reopenQuestions()">⟲ Reabrir ' +
+    s.interview.deferred + ' pergunta(s) adiada(s) — voltar a Compreender</button></div>' +
+    '<div class="kv" style="margin-top:4px">Navegar não gasta tokens; só novas consultas gastam.</div>';
 }
 
 function levelSelect(id, current) {
@@ -2482,6 +2517,19 @@ function answer(qid) {
 }
 function enough() {
   post("/api/interview/enough", { project: projectId, note: "" })
+    .then(load).catch(function (e) { alert(e.message); });
+}
+function reopenQuestions() {
+  post("/api/interview/reopen", { project: projectId })
+    .then(load).catch(function (e) { alert(e.message); });
+}
+function setQuestionsEffort(v) {
+  // Only the Questions phase changes; the other two phases are re-sent as
+  // they are so the profile endpoint never resets them.
+  var ep = (state && state.effortProfile) || {};
+  post("/api/project/effort", { project: projectId,
+    effortQuestions: v, effortOptions: ep.options || "low",
+    effortExecution: ep.execution || "low" })
     .then(load).catch(function (e) { alert(e.message); });
 }
 function decide(d) {
