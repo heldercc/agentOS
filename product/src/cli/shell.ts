@@ -2076,8 +2076,8 @@ function projectMapCard(s) {
   } else if (s.nextProjectSlice) {
     var next = s.nextProjectSlice;
     h += '<div class="row" style="margin-top:12px"><span class="grow"><b>Próxima fatia:</b> ' + esc(next.title) + '</span>';
-    if (next.status === "ready") h += '<button onclick="moveSlice(\'' + esc(next.id) + '\',\'active\',' + map.version + ')">Começar fatia</button>';
-    if (next.status === "active") h += '<button onclick="moveSlice(\'' + esc(next.id) + '\',\'done\',' + map.version + ')">Marcar concluída</button>';
+    if (next.status === "ready") h += '<button onclick="moveSlice(\\'' + esc(next.id) + '\\',\\'active\\',' + map.version + ')">Começar fatia</button>';
+    if (next.status === "active") h += '<button onclick="moveSlice(\\'' + esc(next.id) + '\\',\\'done\\',' + map.version + ')">Marcar concluída</button>';
     h += '</div>';
   }
   if (map) {
@@ -2085,7 +2085,7 @@ function projectMapCard(s) {
     affected.forEach(function (slice) {
       h += '<div class="row" style="margin-top:10px"><span class="grow"><b>Precisa de revalidação:</b> ' + esc(slice.title) +
         '<div class="kv">' + esc(slice.statusReason || "uma alteração a montante pode ter impacto") + '</div></span>' +
-        '<button class="ghost" onclick="moveSlice(&quot;' + esc(slice.id) + '&quot;,\'ready\',' + map.version + ')">Reavaliar esta fatia</button></div>';
+        '<button class="ghost" onclick="moveSlice(&quot;' + esc(slice.id) + '&quot;,\\'ready\\',' + map.version + ')">Reavaliar esta fatia</button></div>';
     });
   }
   return h + '</div>';
