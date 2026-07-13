@@ -1574,6 +1574,108 @@ export function setAsideOpenSurface(projectId: string, scripted = false): void {
   });
 }
 
+// The journey bar's back-navigation composes the four acts above; it adds no
+// mechanics and no evidence of its own (ADR-0022 §4: mechanism, never a
+// second orchestrator — every act below still speaks with its own voice).
+
+export type BackTarget = "interview" | "candidate" | "approve";
+
+export type BackStep =
+  | { act: "dismiss_surface"; lands: Stage }
+  | { act: "withdraw_candidate"; lands: Stage }
+  | { act: "revoke_approval"; lands: Stage }
+  | { act: "reopen_questions"; count: number; lands: Stage };
+
+export type BackPlan = { ok: true; steps: BackStep[] } | { ok: false; why: string };
+
+/** How far back each stage sits on the journey; fractions keep decide a half
+ *  step ahead of candidate (same bar step, dismiss walks between them). */
+const BACK_RANK: Record<Stage, number> = {
+  consult: 1, interview: 1, candidate: 2, decide: 2.5, approve: 3, execute: 4, advance: 5,
+};
+const TARGET_RANK: Record<BackTarget, number> = { interview: 1, candidate: 2, approve: 3 };
+
+/**
+ * Plan the chain of governed acts that walks the project BACK to `target`
+ * (ADR-0022 decision 14). One truth, two consumers: the journey bar paints
+ * its clickable steps from this plan, and stepBackTo refuses to start unless
+ * the WHOLE path is clear — a blocked chain fails before the first act,
+ * never midway. Reads only; changes nothing.
+ */
+export function planStepsBack(projectId: string, target: BackTarget): BackPlan {
+  let stage = stageOf(projectId);
+  if (stage === "advance") {
+    return {
+      ok: false,
+      why: "a execução já devolveu artefactos nesta passagem — avalia e melhora na próxima passagem",
+    };
+  }
+  if (stage === target) return { ok: false, why: "já estás nesse passo" };
+  if (TARGET_RANK[target] >= BACK_RANK[stage]) {
+    return { ok: false, why: "andar para a frente é pelos cartões, não pela barra" };
+  }
+  const steps: BackStep[] = [];
+  for (let hops = 0; stage !== target; hops += 1) {
+    if (hops > 4) return { ok: false, why: `sem caminho de volta a partir de ${stage}` };
+    if (BACK_RANK[stage] < TARGET_RANK[target]) {
+      return {
+        ok: false,
+        why: "pôr a decisão de lado reabre a pergunta que a originou — o caminho de volta passa por Compreender",
+      };
+    }
+    if (stage === "execute") {
+      steps.push({ act: "revoke_approval", lands: "approve" });
+      stage = "approve";
+    } else if (stage === "approve") {
+      steps.push({ act: "withdraw_candidate", lands: "candidate" });
+      stage = "candidate";
+    } else if (stage === "decide") {
+      const ds = openSurface(projectId);
+      const reopensSource = ds?.sourceQuestionId
+        ? readQuestions(projectId).some((q) => q.id === ds.sourceQuestionId && q.status === "routed")
+        : false;
+      stage = reopensSource ? "interview" : "candidate";
+      steps.push({ act: "dismiss_surface", lands: stage });
+    } else if (stage === "candidate") {
+      const deferred = readQuestions(projectId).filter((q) => q.status === "deferred").length;
+      if (deferred === 0) {
+        return {
+          ok: false,
+          why: "não há perguntas adiadas para reabrir — Compreender não tem nada a devolver",
+        };
+      }
+      steps.push({ act: "reopen_questions", count: deferred, lands: "interview" });
+      stage = "interview";
+    } else {
+      return { ok: false, why: `sem caminho de volta a partir de ${stage}` };
+    }
+  }
+  return { ok: true, steps };
+}
+
+/**
+ * Execute a planned walk back to `target`: each step calls the governed act
+ * it names and leaves that act's own evidence — zero tokens, zero Work
+ * Orders. Throws before touching anything when the path is blocked.
+ */
+export function stepBackTo(projectId: string, target: BackTarget, scripted = false): BackStep[] {
+  const plan = planStepsBack(projectId, target);
+  if (!plan.ok) throw new Error(plan.why);
+  for (const step of plan.steps) {
+    if (step.act === "revoke_approval") revokeApproval(projectId, scripted);
+    else if (step.act === "withdraw_candidate") withdrawCandidate(projectId, scripted);
+    else if (step.act === "dismiss_surface") setAsideOpenSurface(projectId, scripted);
+    else reopenDeferredQuestions(projectId, scripted);
+    const landed = stageOf(projectId);
+    if (landed !== step.lands) {
+      throw new Error(
+        `o passo ${step.act} aterrou em ${landed}, não em ${step.lands} — caminho interrompido a caminho de ${target}`,
+      );
+    }
+  }
+  return plan.steps;
+}
+
 // ---------------------------------------------------------------------------
 // Steps 11–12 — governed execution at the Pilot's chosen effort; artifacts
 // return automatically into the project workspace.

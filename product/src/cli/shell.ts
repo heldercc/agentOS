@@ -46,11 +46,14 @@ import {
   refineOption,
   reopenProject,
   declareContextSufficient,
+  planStepsBack,
   reopenDeferredQuestions,
   recordSeedEvidenceGoverned,
   revokeApproval,
   setAsideOpenSurface,
+  stepBackTo,
   withdrawCandidate,
+  type BackTarget,
   runCandidate,
   runConsult,
   runDecisionSurface,
@@ -599,6 +602,12 @@ function stateView(projectId: string): unknown {
     candidateProjectMap: readCandidateProjectMap(projectId),
     nextProjectSlice: nextProjectSlice(projectId),
     surface: openSurface(projectId),
+    /** Decision 14: what the journey bar may walk back to, and why not. */
+    journey: {
+      interview: planStepsBack(projectId, "interview"),
+      candidate: planStepsBack(projectId, "candidate"),
+      approve: planStepsBack(projectId, "approve"),
+    },
     decidedSurfaces: readSurfaces(projectId).filter((d) => d.status === "decided").length,
     artifacts,
     workOrders: readWorkOrders(projectId, project.iteration),
@@ -952,6 +961,25 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     json(res, 200, { ok: true });
     return;
   }
+  // The journey bar walks back through the plan's whole chain in one click.
+  if (req.method === "POST" && url.pathname === "/api/journey/back") {
+    const b = await body(req);
+    const projectId = b["project"] ?? "";
+    if (!guardActive(projectId, res)) return;
+    const target = b["target"] ?? "";
+    if (target !== "interview" && target !== "candidate" && target !== "approve") {
+      json(res, 400, { error: "alvo de navegação inválido" });
+      return;
+    }
+    const plan = planStepsBack(projectId, target as BackTarget);
+    if (!plan.ok) {
+      json(res, 409, { error: plan.why });
+      return;
+    }
+    const steps = stepBackTo(projectId, target as BackTarget);
+    json(res, 200, { ok: true, steps });
+    return;
+  }
   if (req.method === "POST" && url.pathname === "/api/hi/seed/evidence") {
     const b = await body(req);
     if (!b["note"]?.trim()) {
@@ -1298,6 +1326,15 @@ const PAGE = /* html */ `<!doctype html>
   .jsep { color:var(--line); font-size:12px; }
   .jline { font-size:12.5px; color:var(--dim); margin:0 0 16px; }
   .jline b { color:var(--tx); }
+  button.jstep.jback { font:inherit; font-size:12px; font-weight:700; padding:3px 10px;
+           border-radius:20px; background:transparent; color:var(--ok);
+           border:1px solid rgba(63,185,107,.55); cursor:pointer; }
+  button.jstep.jback:hover { background:rgba(63,185,107,.18); }
+  .jstep.jblocked { opacity:.55; cursor:help; }
+  .jlock { background:transparent; color:var(--dim); border:1px solid var(--line);
+           border-radius:20px; font-size:12px; font-weight:600; padding:3px 10px;
+           margin-left:auto; cursor:pointer; }
+  .jlock.on { color:var(--warn); border-color:var(--warn); }
   .card.primary { border-left:4px solid var(--acc); }
   .card.primary.need { border-left-color:var(--warn); }
   .card.primary.wait { border-left-color:var(--dim); }
@@ -1321,11 +1358,17 @@ const PAGE = /* html */ `<!doctype html>
 <div class="wrap" id="app">A carregar…</div>
 <script>
 "use strict";
+// The page's OWN identity, stamped by the process that served it. Everything
+// else on screen comes from the API at each poll — so without this, a tab
+// from an older process would happily display the NEW server's build while
+// running old code. The poll compares and asks for a reload when they differ.
+var PAGE_BOOT = ${JSON.stringify({ sha: BUILD.sha, startedAt: BUILD.startedAt })};
 var $ = function (id) { return document.getElementById(id); };
 var app = $("app");
 var projectId = new URLSearchParams(location.search).get("p");
 var state = null;
 var levelChosen = null;
+var journeyUnlocked = false; // per page-load; unlocking is a gesture, not a preference
 var lastJson = "";
 var view = "agora";
 
@@ -1383,21 +1426,64 @@ function stageInfo(stage, project) {
   }
   return STAGE_MAP[stage] || STAGE_MAP.consult;
 }
+// Desbloqueada, a barra é a navegação de volta (ADR-0022 decisão 14): cada
+// passo anterior alcançável executa a cadeia de atos governados que lá chega
+// — zero tokens, nada se perde. Bloqueada (o defeito), é só informação.
+var BACK_TARGET_BY_STEP = { 1: "interview", 2: "candidate", 3: "approve" };
+var BACK_ACT_WORDS = {
+  dismiss_surface: "pôr a decisão aberta de lado (as opções ficam no registo)",
+  withdraw_candidate: "retirar a proposta da mesa (fica no registo)",
+  revoke_approval: "reabrir a aprovação (o estado aprovado fica na história)"
+};
+function backStepWords(st) {
+  if (st.act === "reopen_questions") return "reabrir " + st.count + " pergunta(s) adiada(s)";
+  return BACK_ACT_WORDS[st.act] || st.act;
+}
 function journeyBar(s) {
   var info = stageInfo(s.stage, s.project);
+  var concluded = isConcluded(s.project);
   var h = '<div class="journey">';
   STEPS.forEach(function (label, i) {
     var cls;
     if (info.kind === "done") cls = i <= info.step ? "done" : "todo";
     else cls = i < info.step ? "done" : i === info.step ? (info.kind === "need" ? "now need" : "now") : "todo";
-    h += '<span class="jstep ' + cls + '">' + label + "</span>";
+    var target = BACK_TARGET_BY_STEP[i];
+    var plan = !concluded && journeyUnlocked && i < info.step && target && s.journey ? s.journey[target] : null;
+    if (plan && plan.ok) {
+      h += '<button class="jstep jback" onclick="journeyBack(\\'' + target + '\\')" title="' +
+        esc("Voltar a " + label + ": " + plan.steps.map(backStepWords).join("; ")) + '">⟲ ' + label + "</button>";
+    } else if (plan && !plan.ok) {
+      h += '<span class="jstep ' + cls + ' jblocked" title="' + esc(plan.why) + '">' + label + "</span>";
+    } else {
+      h += '<span class="jstep ' + cls + '">' + label + "</span>";
+    }
     if (i < STEPS.length - 1) h += '<span class="jsep">›</span>';
   });
+  if (!concluded) {
+    h += '<button class="jlock' + (journeyUnlocked ? " on" : "") + '" onclick="toggleJourneyLock()">' +
+      (journeyUnlocked ? "🔓 desbloqueada — bloquear" : "🔒 desbloquear a jornada") + "</button>";
+  }
   h += "</div>";
   var nxt = info.step < STEPS.length - 1 ? STEPS[info.step + 1] : null;
   h += '<div class="jline">Estás em <b>' + STEPS[info.step] + "</b> — " + esc(info.now) +
-    (nxt ? ' · depois vem <b>' + nxt + "</b>" : "") + "</div>";
+    (nxt ? ' · depois vem <b>' + nxt + "</b>" : "") +
+    (journeyUnlocked && !concluded
+      ? ' · <b>jornada desbloqueada</b>: clica um passo anterior para voltar atrás — zero tokens, nada se perde'
+      : "") + "</div>";
   return h;
+}
+function toggleJourneyLock() {
+  journeyUnlocked = !journeyUnlocked;
+  render();
+}
+function journeyBack(target) {
+  // Desbloquear a jornada É o consentimento — o botão diz a cadeia inteira
+  // no title e na jline; um confirm() nativo aqui seria fricção redundante.
+  var plan = state && state.journey ? state.journey[target] : null;
+  if (!plan || !plan.ok) return;
+  post("/api/journey/back", { project: projectId, target: target })
+    .then(function () { journeyUnlocked = false; return load(); })
+    .catch(function (e) { alert(e.message); });
 }
 function relTime(ts) {
   var min = Math.round((Date.now() - new Date(ts).getTime()) / 60000);
@@ -1415,6 +1501,7 @@ function renderHome() {
       'Tu governas. <span class="badge">runtime: ' + esc(data.runtime) + '</span>' +
       (data.build ? '<span class="badge">build ' + esc(data.build.sha) + '</span>' : "") +
       '</div>';
+    h += pageBootCard(data.build);
     h += staleCard(data.build);
     function homeLevelSelect(id) {
       var h2 = '<select id="' + id + '">';
@@ -1979,6 +2066,18 @@ function staleCard(build) {
   return '<div class="kv" style="margin:-8px 0 12px;opacity:.75">' + notes.join(" · ") + "</div>";
 }
 
+// A tab de um processo anterior corre código velho mas mostraria o build NOVO
+// (vem da API) — sem isto, mentiria por omissão. Nunca auto-recarrega: o
+// Piloto pode estar a meio de uma nota.
+function pageBootCard(build) {
+  if (!build || !build.startedAt || build.startedAt === PAGE_BOOT.startedAt) return "";
+  return '<div class="card" style="border-left:4px solid var(--warn)">' +
+    "<b>Esta página foi carregada de um processo anterior (build " + esc(PAGE_BOOT.sha) + ").</b> " +
+    '<span class="kv">O servidor corre agora o build ' + esc(build.sha) +
+    " — recarrega para teres a interface atual.</span>" +
+    '<div class="row" style="margin-top:10px"><button onclick="location.reload()">Recarregar</button></div></div>';
+}
+
 function render() {
   var s = state;
   if (!s || !s.project) return;
@@ -1986,6 +2085,7 @@ function render() {
     '<div class="sub">passagem ' + s.project.iteration + " pelo ciclo" +
     (isConcluded(s.project) ? ' <span class="badge ok">concluído</span>' : "") + "</div>" +
     buildLine(s.build);
+  h += pageBootCard(s.build);
   h += staleCard(s.build);
   h += journeyBar(s);
   h += tabsBar();

@@ -22,6 +22,7 @@ import {
   initProject,
   listArtifacts,
   openQuestions,
+  planStepsBack,
   readApproved,
   readProjectMap,
   readOperationActuals,
@@ -50,6 +51,7 @@ import {
   selectOption,
   setEffortProfile,
   stageOf,
+  stepBackTo,
   storyOf,
   topOpenQuestion,
   routeQuestionToDecision,
@@ -941,6 +943,61 @@ async function main(): Promise<void> {
     ["candidate_withdrawn", "decision_dismissed", "approval_revoked"].every((a) =>
       readEvents(pBack.id).some((e) => e.action === a && e.actor === "pilot"),
     ),
+  );
+
+  // The journey bar's compositor: one click walks the WHOLE chain of governed
+  // acts — planned first (pure), executed only when the full path is clear,
+  // each act leaving its own evidence. Never a fifth mechanism (ADR-0022 §4).
+  const wosBeforeChain = readWorkOrders(pBack.id, 1).length;
+  const chain = stepBackTo(pBack.id, "interview", true);
+  check(
+    "14q. stepBackTo(interview) from Criar walks revoke → withdraw → reopen in one call",
+    stageOf(pBack.id) === "interview" && chain.length === 3 && openQuestions(pBack.id).length > 0,
+  );
+  const chainActs = readEvents(pBack.id).map((e) => e.action);
+  check(
+    "14r. the chain lands its evidence in walking order",
+    chainActs.lastIndexOf("approval_revoked") < chainActs.lastIndexOf("candidate_withdrawn") &&
+      chainActs.lastIndexOf("candidate_withdrawn") < chainActs.lastIndexOf("questions_reopened"),
+  );
+  check("14s. the whole chain costs zero work orders", readWorkOrders(pBack.id, 1).length === wosBeforeChain);
+  let chainGuard = 0;
+  while (topOpenQuestion(pBack.id) !== null && chainGuard < 10) {
+    chainGuard += 1;
+    const cq = topOpenQuestion(pBack.id);
+    if (!cq) break;
+    await answerQuestion({
+      projectId: pBack.id,
+      questionId: cq.id,
+      answer: "Answered so nothing stays deferred for the blocked-plan proof.",
+      runtime,
+      scripted: true,
+    });
+  }
+  check(
+    "14t. with nothing deferred the plan is blocked BEFORE the first act",
+    (() => {
+      if (stageOf(pBack.id) !== "candidate") return false;
+      const planned = planStepsBack(pBack.id, "interview");
+      if (planned.ok) return false;
+      try {
+        stepBackTo(pBack.id, "interview", true);
+        return false;
+      } catch {
+        return stageOf(pBack.id) === "candidate";
+      }
+    })(),
+  );
+  check(
+    "14u. walking forward through the bar is refused",
+    (() => {
+      try {
+        stepBackTo(pBack.id, "approve", true);
+        return false;
+      } catch {
+        return true;
+      }
+    })(),
   );
 
   // Project lifecycle (parecer 2026-07-12): concluding is a governed act —
