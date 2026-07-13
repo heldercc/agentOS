@@ -887,7 +887,28 @@ const EXECUTE_SYSTEM =
 // Question Needs — collect (4), aggregate & dedupe (5), persist answer (7).
 
 function normalizeQuestion(text: string): string {
-  return text.toLowerCase().replace(/\s+/g, " ").trim();
+  return text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+}
+
+/**
+ * The dedup key erases the asker's SELF-reference: agents often voice the
+ * same need while naming themselves ("what should the scope specialist treat
+ * as out of bounds" vs "what should the options specialist treat as out of
+ * bounds"). Keyed with each asker's own id and title neutralized, those
+ * variants merge into ONE question with every voice on it — the Pilot
+ * answers once and every asker is re-consulted. Only the asker's own name is
+ * erased, never another agent's: a question ABOUT a different lane keeps its
+ * meaning and stays separate.
+ */
+function questionKey(text: string, askerId: string, askerTitle?: string): string {
+  let key = ` ${normalizeQuestion(text)} `;
+  for (const ref of [askerTitle, askerId]) {
+    const r = ref ? normalizeQuestion(ref) : "";
+    if (!r) continue;
+    // r is normalized (letters/digits/spaces only) — safe inside a RegExp.
+    key = key.replace(new RegExp(`(?<= )${r}(?= )`, "g"), "⟨eu⟩");
+  }
+  return key.trim();
 }
 
 function mergeQuestions(
@@ -897,14 +918,20 @@ function mergeQuestions(
   iteration: number,
 ): void {
   const questions = readQuestions(projectId);
+  const roster = readRoster(projectId);
+  const titleOf = (id: string): string | undefined =>
+    roster?.agents.find((a) => a.id === id)?.title;
   let maxId = questions.reduce((n, q) => {
     const m = /^q-(\d+)$/.exec(q.id);
     return m ? Math.max(n, Number(m[1])) : n;
   }, 0);
   for (const text of texts) {
-    const key = normalizeQuestion(text);
+    const key = questionKey(text, agentId, titleOf(agentId));
     if (key === "") continue;
-    const hit = questions.find((q) => normalizeQuestion(q.text) === key);
+    const hit = questions.find((q) => {
+      const first = q.askedBy[0] ?? "";
+      return questionKey(q.text, first, titleOf(first)) === key;
+    });
     if (hit) {
       // An answered need never reopens; an open one gains a voice.
       if (hit.status === "open" && !hit.askedBy.includes(agentId)) {

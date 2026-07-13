@@ -286,6 +286,16 @@ async function main(): Promise<void> {
     common !== undefined,
     JSON.stringify(questions.map((q) => ({ t: q.text.slice(0, 30), by: q.askedBy })), null, 0),
   );
+  // Each fake agent asks "what should the ${agent} specialist treat as out of
+  // bounds?" naming ITSELF — the same need in different mouths. The dedup key
+  // erases the asker's self-reference, so exactly one question carries every
+  // voice (parecer do Piloto 2026-07-13: duplicates are interview noise).
+  const bounds = questions.filter((q) => q.text.includes("out of bounds"));
+  check(
+    "5c. self-referential variants of one need merge into a single question",
+    bounds.length === 1 && (bounds[0]?.askedBy.length ?? 0) > 1,
+    JSON.stringify(bounds.map((q) => ({ t: q.text.slice(0, 40), by: q.askedBy })), null, 0),
+  );
   check("5b. stage is interview", stageOf(project.id) === "interview");
 
   // Step 6 — one governed question at a time, ranked by demand.
