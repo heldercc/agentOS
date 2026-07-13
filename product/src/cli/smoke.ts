@@ -29,10 +29,14 @@ import {
   readRoster,
   readSurfaces,
   readWorkOrders,
+  readCandidate,
   recordSeedEvidenceGoverned,
   refineOption,
   reopenDeferredQuestions,
   reopenProject,
+  revokeApproval,
+  setAsideOpenSurface,
+  withdrawCandidate,
   reviseSeedGoverned,
   runCandidate,
   runConsult,
@@ -837,19 +841,19 @@ async function main(): Promise<void> {
   // questions is pure navigation — Compreender returns, at ZERO token cost.
   const wosBeforeReopen = readWorkOrders(p2.id, 1).length;
   const reopenedN = reopenDeferredQuestions(p2.id, true);
-  check("21e. reopening returns every deferred question", reopenedN === deferredN && openQuestions(p2.id).length === deferredN);
-  check("21f. the stage returns to interview", stageOf(p2.id) === "interview");
+  check("14a. reopening returns every deferred question", reopenedN === deferredN && openQuestions(p2.id).length === deferredN);
+  check("14b. the stage returns to interview", stageOf(p2.id) === "interview");
   check(
-    "21g. navigation costs zero tokens — no new work orders",
+    "14c. navigation costs zero tokens — no new work orders",
     readWorkOrders(p2.id, 1).length === wosBeforeReopen,
   );
   check(
-    "21h. the reopening is governed evidence, actor pilot",
+    "14d. the reopening is governed evidence, actor pilot",
     readEvents(p2.id).some((e) => e.action === "questions_reopened" && e.actor === "pilot"),
   );
   // Defer again so the sufficiency flow below continues exactly as before.
   declareContextSufficient(p2.id, "enough again for the smoke", true);
-  check("21i. sufficiency can be declared again after reopening", stageOf(p2.id) === "candidate");
+  check("14e. sufficiency can be declared again after reopening", stageOf(p2.id) === "candidate");
 
   await runCandidate({ projectId: p2.id, level: "minimal", runtime, scripted: true });
   const synthEnough = readWorkOrders(p2.id, 1)
@@ -893,6 +897,51 @@ async function main(): Promise<void> {
     `got ${ds3.options.length}`,
   );
   selectOption(p2.id, ds3.id, ds3.options[0]?.id ?? "option-a", 1, true);
+
+  // Governed back-and-forth across the WHOLE journey (ADR-0022 decision 14):
+  // from Decidir, Aprovar and Criar the Pilot steps back at zero token cost;
+  // nothing is deleted, stageOf re-derives, evidence carries every act.
+  if (existsSync(projectDir("smoke-backforth"))) {
+    rmSync(projectDir("smoke-backforth"), { recursive: true, force: true });
+  }
+  const pBack = initProject("Smoke Backforth", "Prove governed back-and-forth in every stage.", true);
+  await runConsult({ projectId: pBack.id, level: "minimal", runtime, scripted: true });
+  declareContextSufficient(pBack.id, "enough for the backforth proof", true);
+  await runCandidate({ projectId: pBack.id, level: "minimal", runtime, scripted: true });
+  check("14f. a proposal is on the table (Aprovar)", stageOf(pBack.id) === "approve");
+  const wosBeforeWithdraw = readWorkOrders(pBack.id, 1).length;
+  withdrawCandidate(pBack.id, true);
+  check(
+    "14g. withdrawing steps back and keeps the proposal on file",
+    stageOf(pBack.id) === "candidate" && readCandidate(pBack.id)?.status === "withdrawn",
+  );
+  check("14h. stepping back from Aprovar costs zero work orders", readWorkOrders(pBack.id, 1).length === wosBeforeWithdraw);
+  const dsBack = await runDecisionSurface({ projectId: pBack.id, level: "minimal", runtime, scripted: true, optionsCount: 2 });
+  check("14i. an open Decision Surface puts the project in Decidir", stageOf(pBack.id) === "decide");
+  setAsideOpenSurface(pBack.id, true);
+  check(
+    "14j. setting the decision aside steps back with the options on record",
+    stageOf(pBack.id) === "candidate" && readSurfaces(pBack.id).some((d) => d.id === dsBack.id && d.status === "dismissed"),
+  );
+  await runCandidate({ projectId: pBack.id, level: "minimal", runtime, scripted: true });
+  decideCandidate(pBack.id, "approve", undefined, true);
+  check("14k. approved — Criar is next", stageOf(pBack.id) === "execute");
+  const wosBeforeRevoke = readWorkOrders(pBack.id, 1).length;
+  revokeApproval(pBack.id, true);
+  check(
+    "14l. revoking the approval returns to Aprovar with no approved state in force",
+    stageOf(pBack.id) === "approve" && readApproved(pBack.id) === null,
+  );
+  check("14m. the revoked snapshot is preserved in history", readdirSync(abs(projectDir(pBack.id), "state", "history")).some((n) => n.includes("revoked")));
+  check("14n. stepping back from Criar costs zero work orders", readWorkOrders(pBack.id, 1).length === wosBeforeRevoke);
+  decideCandidate(pBack.id, "approve", undefined, true);
+  check("14o. re-approval works after revocation", stageOf(pBack.id) === "execute" && readApproved(pBack.id)?.iteration === 1);
+  check(
+    "14p. every back-and-forth act is governed evidence, actor pilot",
+    ["candidate_withdrawn", "decision_dismissed", "approval_revoked"].every((a) =>
+      readEvents(pBack.id).some((e) => e.action === a && e.actor === "pilot"),
+    ),
+  );
 
   // Project lifecycle (parecer 2026-07-12): concluding is a governed act —
   // freeze and archive, never delete; reopening leaves evidence.

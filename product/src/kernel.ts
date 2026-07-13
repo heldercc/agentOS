@@ -10,7 +10,7 @@
 //   9 runCandidate · 10 decideCandidate · 11 runExecute
 //   12 artifacts auto-return inside runExecute · 13 advanceIteration
 
-import { appendFileSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 
 import { appendEvent, readEvents } from "./evidence.js";
 import {
@@ -330,7 +330,9 @@ export type Stage =
 export function stageOf(projectId: string): Stage {
   const project = getProject(projectId);
   const candidate = readCandidate(projectId);
-  if (candidate && candidate.iteration === project.iteration) {
+  // A withdrawn candidate is the Pilot's step BACK (decision 14): it stays
+  // on file as evidence but no longer drives the stage — fall through.
+  if (candidate && candidate.iteration === project.iteration && candidate.status !== "withdrawn") {
     if (candidate.status === "candidate") return "approve";
     if (candidate.status === "approved") {
       const done = listArtifacts(projectId).some((a) => a.iteration === project.iteration);
@@ -1464,6 +1466,112 @@ export function decideCandidate(
       writeJson(candidatePath, candidate);
     });
   }
+}
+
+// ---------------------------------------------------------------------------
+// Governed back-and-forth across the WHOLE journey (ADR-0022, decision 14):
+// every step back is a pure data move — zero tokens, zero Work Orders — with
+// governed evidence. Nothing is deleted: candidates withdraw, approvals move
+// aside into history, open decisions are set aside. stageOf re-derives the
+// stage; the past stays on file, always.
+
+/** Aprovar → back: the pending proposal leaves the table (kept on file). */
+export function withdrawCandidate(projectId: string, scripted = false): void {
+  const project = getProject(projectId);
+  const candidate = readCandidate(projectId);
+  if (!candidate || candidate.iteration !== project.iteration || candidate.status !== "candidate") {
+    throw new Error("nenhuma proposta pendente para retirar");
+  }
+  candidate.status = "withdrawn";
+  candidate.decidedAt = nowIso();
+  const candidatePath = abs(stateDir(projectId), "candidate.json");
+  const evidencePath = abs(projectDir(projectId), "evidence.jsonl");
+  withTransition(workspaceRoot(), `withdraw-candidate-${projectId}-${candidate.iteration}`, [candidatePath, evidencePath], () => {
+    event(project, "pilot", "candidate_withdrawn", scripted, {
+      note: "proposta retirada pela minha mão — voltar atrás; nada se perde",
+    });
+    writeJson(candidatePath, candidate);
+  });
+}
+
+/**
+ * Criar → back: reopen this iteration's approval BEFORE anything was
+ * executed. The approved snapshot moves aside into history (never deleted);
+ * an earlier iteration's approval is restored when history holds one.
+ */
+export function revokeApproval(projectId: string, scripted = false): void {
+  const project = getProject(projectId);
+  const candidate = readCandidate(projectId);
+  if (!candidate || candidate.iteration !== project.iteration || candidate.status !== "approved") {
+    throw new Error("nenhuma aprovação desta passagem para reabrir");
+  }
+  if (listArtifacts(projectId).some((a) => a.iteration === project.iteration)) {
+    throw new Error(
+      "a execução já devolveu artefactos nesta passagem — avalia e melhora na próxima passagem em vez de reabrir a aprovação",
+    );
+  }
+  const approvedPath = abs(stateDir(projectId), "approved.json");
+  const historyDir = abs(stateDir(projectId), "history");
+  // Preserve the revoked snapshot, then restore the most recent EARLIER
+  // approval if history holds one (approvals older than the history
+  // mechanism have no snapshot — then the honest state is "none approved").
+  const revokedKeep = abs(historyDir, `approved-it${candidate.iteration}-revoked-${Date.now().toString(36)}.json`);
+  let restored: ApprovedState | null = null;
+  if (existsSync(historyDir)) {
+    const prior = readdirSync(historyDir)
+      .map((name) => /^approved-it(\d+)\.json$/.exec(name))
+      .filter((m): m is RegExpExecArray => m !== null)
+      .map((m) => Number(m[1]))
+      .filter((it) => it < candidate.iteration)
+      .sort((a, b) => b - a)[0];
+    if (prior !== undefined) {
+      restored = validateApprovedState(readJson<unknown>(abs(historyDir, `approved-it${prior}.json`)));
+    }
+  }
+  candidate.status = "candidate";
+  delete candidate.decidedAt;
+  const candidatePath = abs(stateDir(projectId), "candidate.json");
+  const evidencePath = abs(projectDir(projectId), "evidence.jsonl");
+  withTransition(workspaceRoot(), `revoke-approval-${projectId}-${candidate.iteration}`, [approvedPath, revokedKeep, candidatePath, evidencePath], () => {
+    if (existsSync(approvedPath)) {
+      writeJson(revokedKeep, readJson<unknown>(approvedPath));
+      unlinkSync(approvedPath);
+    }
+    if (restored) writeJson(approvedPath, restored);
+    event(project, "pilot", "approval_revoked", scripted, {
+      note: restored
+        ? `aprovação da passagem ${candidate.iteration} reaberta pela minha mão — vale de novo a da passagem ${restored.iteration}`
+        : `aprovação da passagem ${candidate.iteration} reaberta pela minha mão — nenhum estado aprovado fica em vigor`,
+    });
+    writeJson(candidatePath, candidate);
+  });
+}
+
+/**
+ * Decidir → back: set the open Decision Surface aside without choosing.
+ * If a routed question created it, that question reopens — nothing strands.
+ */
+export function setAsideOpenSurface(projectId: string, scripted = false): void {
+  const project = getProject(projectId);
+  const ds = openSurface(projectId);
+  if (!ds) throw new Error("nenhuma decisão aberta para pôr de lado");
+  ds.status = "dismissed";
+  let reopenedQuestion = false;
+  if (ds.sourceQuestionId) {
+    const questions = readQuestions(projectId);
+    const q = questions.find((item) => item.id === ds.sourceQuestionId);
+    if (q && q.status === "routed") {
+      q.status = "open";
+      writeQuestions(projectId, questions);
+      reopenedQuestion = true;
+    }
+  }
+  writeSurface(ds);
+  event(project, "pilot", "decision_dismissed", scripted, {
+    note:
+      `decisão "${ds.decision.slice(0, 80)}" posta de lado pela minha mão — as opções ficam no registo` +
+      (reopenedQuestion ? "; a pergunta que a originou voltou a abrir" : ""),
+  });
 }
 
 // ---------------------------------------------------------------------------

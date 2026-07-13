@@ -246,7 +246,9 @@ export interface CandidateState {
   builtAt: string;
   workOrderId: string;
   state: ProjectStateDoc;
-  status: "candidate" | "approved" | "rejected";
+  /** "withdrawn" = the Pilot stepped BACK (ADR-0022 §14): the proposal
+   *  leaves the table but stays on file; the stage re-derives without it. */
+  status: "candidate" | "approved" | "rejected" | "withdrawn";
   decidedAt?: string;
   /** The Pilot's note on rejection — direction for the rebuild. */
   rejectionNote?: string;
@@ -304,7 +306,9 @@ export interface DecisionSurface {
   why: string;
   options: OptionRecord[];
   recommendation: { optionId: string; reason: string } | null;
-  status: "open" | "decided";
+  /** "dismissed" = set aside by the Pilot without choosing (ADR-0022 §14);
+   *  the options stay on record, never folded into candidates. */
+  status: "open" | "decided" | "dismissed";
   selected?: { optionId: string; version: number };
   createdAt: string;
   decidedAt?: string;
@@ -334,6 +338,10 @@ export interface EvidenceEvent {
     /** The mirror of context_sufficient: deferred questions reopened by the
      *  Pilot's hand — governed back-and-forth, zero tokens (ADR-0022 §14). */
     | "questions_reopened"
+    /** Back-and-forth acts (ADR-0022 §14) — always the Pilot's hand. */
+    | "candidate_withdrawn"
+    | "approval_revoked"
+    | "decision_dismissed"
     | "reconsulted"
     | "candidate_built"
     | "state_approved"

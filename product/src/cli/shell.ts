@@ -48,6 +48,9 @@ import {
   declareContextSufficient,
   reopenDeferredQuestions,
   recordSeedEvidenceGoverned,
+  revokeApproval,
+  setAsideOpenSurface,
+  withdrawCandidate,
   runCandidate,
   runConsult,
   runDecisionSurface,
@@ -927,6 +930,28 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     json(res, 200, { reopened: n });
     return;
   }
+  // Governed back-and-forth (ADR-0022 §14) — pure data moves, zero tokens.
+  if (req.method === "POST" && url.pathname === "/api/candidate/withdraw") {
+    const b = await body(req);
+    if (!guardActive(b["project"] ?? "", res)) return;
+    withdrawCandidate(b["project"] ?? "");
+    json(res, 200, { ok: true });
+    return;
+  }
+  if (req.method === "POST" && url.pathname === "/api/approval/revoke") {
+    const b = await body(req);
+    if (!guardActive(b["project"] ?? "", res)) return;
+    revokeApproval(b["project"] ?? "");
+    json(res, 200, { ok: true });
+    return;
+  }
+  if (req.method === "POST" && url.pathname === "/api/decision/dismiss") {
+    const b = await body(req);
+    if (!guardActive(b["project"] ?? "", res)) return;
+    setAsideOpenSurface(b["project"] ?? "");
+    json(res, 200, { ok: true });
+    return;
+  }
   if (req.method === "POST" && url.pathname === "/api/hi/seed/evidence") {
     const b = await body(req);
     if (!b["note"]?.trim()) {
@@ -1767,7 +1792,9 @@ function primaryCard() {
       '<div class="kv" style="margin-top:6px">Ao responder, quem perguntou volta a pensar sozinho. ' +
       "Declarar suficiência é teu por direito: o que ficar em aberto fica adiado e visível, nunca inventado.</div>");
   } else if (s.stage === "decide" && s.surface) {
-    h = decisionSurfaceCard(s.surface) + reopenDeferredBlock(s);
+    h = decisionSurfaceCard(s.surface) +
+      backRow("⟲ Pôr esta decisão de lado — voltar atrás sem escolher", "dismissSurface()") +
+      reopenDeferredBlock(s);
   } else if (s.stage === "candidate") {
     var rej = s.candidate && s.candidate.status === "rejected" && s.candidate.iteration === s.project.iteration;
     h = primary("act", "Decidir o rumo",
@@ -1788,13 +1815,15 @@ function primaryCard() {
       stateDoc(s.candidate.state) +
       '<label>Nota (obrigatória se rejeitares — é a tua direção)</label><textarea id="dnote"></textarea>' +
       '<div class="row" style="margin-top:10px"><button class="approve" onclick="decide(\\'approve\\')">Aprovar</button>' +
-      '<button class="danger" onclick="decide(\\'reject\\')">Rejeitar com nota</button></div>');
+      '<button class="danger" onclick="decide(\\'reject\\')">Rejeitar com nota</button></div>' +
+      backRow("⟲ Retirar esta proposta — voltar atrás", "withdrawCand()"));
   } else if (s.stage === "execute") {
     h = primary("act", "Mandar criar",
       '<div class="kv">Estado aprovado. O sistema vai criar: <b>' +
       esc(s.approved ? s.approved.state.nextAction : "") + "</b></div>" + levelSelector("execute") +
       '<div style="margin-top:12px"><button onclick="op(\\'execute\\')">Criar</button></div>' +
-      '<div class="kv" style="margin-top:6px">O resultado regressa sozinho a este ecrã.</div>');
+      '<div class="kv" style="margin-top:6px">O resultado regressa sozinho a este ecrã.</div>' +
+      backRow("⟲ Reabrir a aprovação — voltar a Aprovar", "revokeAppr()"));
   } else if (s.stage === "advance") {
     var inner = '<div class="kv">O resultado está em baixo, em <b>Resultados</b>. Lê-o. ' +
       "Se uma GuruSeed ajudou ou atrapalhou, devolve o teu veredicto na <b>Inteligência Humana</b> — " +
@@ -2117,8 +2146,16 @@ function effortQuestionsInline(s) {
   return h + "</select></div>";
 }
 
-// Back-and-forth governado (ADR-0022, decisão 14): voltar a Compreender é
-// reabrir as perguntas que TU adiaste — movimento de dados puro, zero tokens.
+// Back-and-forth governado (ADR-0022, decisão 14): um passo atrás em
+// QUALQUER estado é um ato governado — zero tokens, nada se perde.
+function backRow(label, call) {
+  return '<div class="row" style="margin-top:10px"><button class="ghost" onclick="' + call + '">' +
+    label + "</button></div>" +
+    '<div class="kv" style="margin-top:4px">Voltar atrás é governado — zero tokens, nada se perde.</div>';
+}
+
+// Voltar a Compreender é reabrir as perguntas que TU adiaste — movimento de
+// dados puro, zero tokens.
 function reopenDeferredBlock(s) {
   if (!s.interview || !s.interview.deferred) return "";
   return '<div class="row" style="margin-top:10px"><button class="ghost" onclick="reopenQuestions()">⟲ Reabrir ' +
@@ -2521,6 +2558,18 @@ function enough() {
 }
 function reopenQuestions() {
   post("/api/interview/reopen", { project: projectId })
+    .then(load).catch(function (e) { alert(e.message); });
+}
+function withdrawCand() {
+  post("/api/candidate/withdraw", { project: projectId })
+    .then(load).catch(function (e) { alert(e.message); });
+}
+function revokeAppr() {
+  post("/api/approval/revoke", { project: projectId })
+    .then(load).catch(function (e) { alert(e.message); });
+}
+function dismissSurface() {
+  post("/api/decision/dismiss", { project: projectId })
     .then(load).catch(function (e) { alert(e.message); });
 }
 function setQuestionsEffort(v) {
